@@ -12,10 +12,12 @@
 | Updater riêng | pubkey + endpoint của fork; key ở `D:\dev\keys\` + GitHub secret `TAURI_SIGNING_PRIVATE_KEY`; version `0.15.0-1` |
 | Giao thức v2 (Rust) | scope `view/control/manage` (kiểm tra trước webview), `query`/`result` có `data` ≤ 512 KiB, upload ảnh theo chunk, download export 1 lần, audit log, lệnh Settings đổi scope |
 | Giao thức v2 (webview) | `app/remote-ops.js`: kiểm tra lại tham số + map toàn bộ action/query lên `OMP_BRIDGE`, id mờ thay cho path |
-| Giao thức v2 (phone) | `src/remote/protocol.js` (`OMP_REMOTE_PROTO`): request/ack, scope gating, upload, download — đã nối vào socket, **chưa có UI** |
+| Giao thức v2 (phone) | `src/remote/protocol.js` (`OMP_REMOTE_PROTO`): request/ack, scope gating, upload, download |
+| UI điện thoại | Theo thiết kế (26 màn): shell + registry `OMP_REMOTE_UI`, Sessions/NewSession/Menu/Profile/Connection/Pairing, Chat (composer, slash/@, hàng đợi, ask, duyệt quyền, sheet model, tool output, menu tin nhắn), Review/Diff, Agents/Subagent, Tree, Export, Usage, Approvals. 3 theme (aurora/daylight/phosphor) |
+| Dữ liệu thật cho UI | `buildView` xuất queue, goal, todos, subagents, model/thinking, context/cost; `branchAt`/`forkAt` tìm entry id thật qua conversation tree (không đoán); duyệt nhớ (`args.grant`) cần scope **Manage**, Rust kiểm tra, hello báo cap `approvalGrant` |
 | Test | `test-remote-ops`, `test-remote-protocol`, Rust ws/server/transfers/audit/scope tests; CI + Clippy xanh |
 | Giai đoạn 6 spike | xong: khuyến nghị "shadow view" trong webview (xem SPIKE doc) |
-| Còn lại trước Giai đoạn 2 | cài bản fork lên máy (cần đóng OMP Desktop), giải phóng ổ C: nếu muốn build local |
+| Còn lại | kiểm thử trên iPhone thật (PWA, push, camera, share sheet), cài bản fork lên máy (cần đóng OMP Desktop), giải phóng ổ C: nếu muốn build local, shadow view cho tab nền |
 
 ## Quyết định đã chốt
 

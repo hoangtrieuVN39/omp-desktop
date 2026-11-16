@@ -13,6 +13,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Remote access, images and downloads: a phone uploads prompt images in chunks (PNG, JPEG, GIF, WebP; at most 8 per message, 1.5 MB each), bound to that phone; an HTML export can be downloaded to the phone once, with its token (`GET /download/<id>`, 5 minutes).
 - Remote access, audit log: every phone action and its outcome is written to `remote-audit.jsonl` in the app config folder (rotated at 512 KB).
 
+- Remote access, the phone page is rebuilt from the design: Sessions (waiting asks, open and saved tabs), New session, Chat (composer with slash and @ palettes, steer/queue, model & modes sheet, plan strip, inline edit diffs, full tool output, approvals incl. "allow for this session / always allow" for Manage phones), Review and diffs, Agents with subagent transcripts, conversation tree, HTML export download, usage and approval rules. Aurora, Daylight and Phosphor themes.
+
 ### Changed
 
 - This fork updates from `hoangtrieuVN39/omp-desktop` releases, signed with its own key.
