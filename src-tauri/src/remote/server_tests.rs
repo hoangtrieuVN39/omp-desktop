@@ -336,9 +336,15 @@ fn static_assets_are_served_with_csp_and_no_store() {
         for part in page.split(attr).skip(1) {
             let path = part.split('"').next().unwrap_or_default();
             if let Some(name) = path.strip_prefix('/').filter(|n| !n.is_empty()) {
-                let content_type = if name.ends_with(".css") {
+                let content_type = if std::path::Path::new(name)
+                    .extension()
+                    .is_some_and(|e| e == "css")
+                {
                     "text/css; charset=utf-8"
-                } else if name.ends_with(".js") {
+                } else if std::path::Path::new(name)
+                    .extension()
+                    .is_some_and(|e| e == "js")
+                {
                     "text/javascript; charset=utf-8"
                 } else {
                     continue;
