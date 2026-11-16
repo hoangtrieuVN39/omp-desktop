@@ -7,7 +7,7 @@
 
 | Hạng mục | Trạng thái |
 |---|---|
-| Toolchain | rustup stable+nightly ở `D:\dev`. **MSVC chưa cài được: ổ C: còn ~0.7 GB, VS Installer cần ≥ 2.7 GB trên C:** → build/test Rust chạy trên GitHub Actions (`CI`, `Clippy`) |
+| Toolchain | rustup stable+nightly ở `D:\dev`; VS Build Tools (MSVC 14.44 + Windows SDK 26100) ở `D:\dev\BuildTools`. Chạy cargo local: `D:\dev\msvcenv.cmd cargo test --lib remote::` (target ở `D:\dev\target`). `manager_tests::a_successful_pairing_emits_a_status_with_the_device` đôi khi lỗi trên Windows khi `free_port()` trúng dải port bị loại trừ; chạy riêng thì qua (đã có sẵn, không liên quan) |
 | Fork | `hoangtrieuVN39/omp-desktop`, nhánh `phone-remote`, upstream = `apoc/omp-desktop` |
 | Updater riêng | pubkey + endpoint của fork; key ở `D:\dev\keys\` + GitHub secret `TAURI_SIGNING_PRIVATE_KEY`; version `0.15.0-1` |
 | Giao thức v2 (Rust) | scope `view/control/manage` (kiểm tra trước webview), `query`/`result` có `data` ≤ 512 KiB, upload ảnh theo chunk, download export 1 lần, audit log, lệnh Settings đổi scope |
