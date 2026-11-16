@@ -1,0 +1,92 @@
+/* Chat questions and approvals (AskDialog / ChatApproval), the message menu
+   (MessageMenu) and the Model & modes sheet (ModelSheet) .dc.html. */
+.r-ask-card { display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 16px; background: var(--bg-elevated); border: 1px solid var(--amber); box-shadow: 0 0 0 4px var(--st-ask-soft); }
+.r-ask-head { display: flex; align-items: center; gap: 8px; color: var(--amber); font-size: 13px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+.r-ask-title { font-size: 17px; font-weight: 600; }
+.r-ask-message, .r-ask-hint { color: var(--fg-2); font-size: 15px; overflow-wrap: anywhere; }
+.r-ask-hint { color: var(--fg-3); font-size: 14px; }
+.r-ask-command, .r-ask-details { padding: 10px 12px; border-radius: 10px; background: var(--bg-input); border: 1px solid var(--line); font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 30vh; overflow-y: auto; }
+.r-ask-details { font-size: 13px; color: var(--fg-2); }
+.r-ask-meta { font-size: 13px; color: var(--fg-3); }
+.r-ask-primary-row { display: flex; gap: 8px; }
+.r-ask-primary-row .r-ask-deny { flex: 1; }
+.r-ask-primary-row .r-ask-approve { flex: 2; height: 48px; font-size: 17px; }
+.r-ask-action, .r-ask-choice, .r-ask-dialog-open, .r-ask-submit { width: 100%; justify-content: flex-start; }
+.r-ask-deny { justify-content: center; }
+.r-ask-grant { height: 44px; padding: 0 14px; border-radius: 12px; background: var(--bg-surface); border: 1px solid var(--line); font-size: 15px; font-weight: 400; justify-content: space-between; }
+.r-ask-grant[aria-disabled="true"] { color: var(--fg-3); }
+.r-ask-choices { display: flex; flex-direction: column; gap: 8px; }
+.r-ask-choice { justify-content: center; }
+.r-ask-input { width: 100%; box-sizing: border-box; min-height: 44px; padding: 10px 12px; border-radius: 10px; background: var(--bg-input); border: 1px solid var(--line); color: var(--fg); font: inherit; font-size: 16px; }
+.r-ask-input:focus { outline: none; border-color: var(--accent); }
+.r-ask-lock, .r-ask-locked-row { display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: 12px; border: 1px dashed var(--line-bright); color: var(--fg-3); font-size: 15px; }
+.r-ask-locked-row { min-height: 44px; padding: 0 12px; }
+
+.r-dialog-form { display: flex; flex-direction: column; gap: 18px; padding-bottom: 8px; }
+.r-dialog-question { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.r-dialog-question legend { padding: 0; margin-bottom: 8px; font-size: 16px; font-weight: 600; }
+.r-dialog-hint { font-size: 13px; color: var(--fg-3); }
+.r-dialog-option { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 14px; border-radius: 12px; background: var(--bg-surface); border: 1px solid var(--line); text-align: left; color: var(--fg); }
+.r-dialog-option.is-selected { border-color: var(--accent); background: var(--accent-soft); }
+.r-dialog-mark { flex: none; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--line-bright); box-sizing: border-box; }
+.r-dialog-mark.is-box { border-radius: 6px; }
+.r-dialog-option.is-selected .r-dialog-mark { border: 6px solid var(--accent); }
+.r-dialog-option.is-selected .r-dialog-mark.is-box { border-width: 2px; background: var(--accent); }
+.r-dialog-option-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.r-dialog-option-text small { font-size: 13px; color: var(--fg-3); }
+.r-dialog-suggested { color: var(--accent); font-size: 12px; font-weight: 600; }
+.r-dialog-custom { width: 100%; box-sizing: border-box; height: 44px; padding: 0 12px; border-radius: 10px; background: var(--bg-input); border: 1px solid var(--line); color: var(--fg); font: inherit; font-size: 16px; }
+.r-dialog-custom:focus { outline: none; border-color: var(--accent); }
+.r-dialog-error { color: var(--rose); font-size: 14px; min-height: 0; }
+.r-dialog-footer { display: flex; gap: 8px; }
+.r-dialog-footer .r-dialog-send { flex: 2; height: 52px; }
+.r-dialog-footer .r-dialog-skip { flex: 1; height: 52px; }
+
+/* message menu: overlay on #app, the message above the actions */
+.r-msg-menu-backdrop { position: absolute; inset: 0; z-index: 30; background: var(--scrim); }
+.r-msg-menu-panel { position: absolute; left: 12px; right: 12px; bottom: calc(12px + var(--sab)); z-index: 31; display: flex; flex-direction: column; gap: 12px; animation: r-fade 120ms ease-out; }
+.r-msg-menu-preview { align-self: stretch; max-height: 26vh; overflow: hidden; padding: 10px 14px; border-radius: 16px; background: var(--bg-surface); border: 1px solid var(--line-bright); font-size: 15px; display: flex; flex-direction: column; gap: 2px; }
+.r-msg-menu-preview.is-user { align-self: flex-end; max-width: 86%; background: var(--accent-soft); border-radius: 16px 16px 4px 16px; border-color: transparent; }
+.r-msg-menu-heading { font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--fg-3); }
+.r-msg-menu-list { display: flex; flex-direction: column; border-radius: 18px; background: var(--bg-elevated); border: 1px solid var(--line-bright); overflow: hidden; }
+.r-msg-menu-row { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 6px 16px; border: 0; border-top: 1px solid var(--line-soft); background: transparent; text-align: left; color: var(--fg); }
+.r-msg-menu-row:first-child { border-top: 0; }
+.r-msg-menu-row.is-locked { color: var(--fg-3); }
+.r-msg-menu-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.r-msg-menu-text strong { font-weight: 600; }
+.r-msg-menu-text small { font-size: 13px; color: var(--fg-3); }
+.r-msg-menu-footer { margin: 0; padding: 0 6px; text-align: center; font-size: 13px; color: var(--fg-2); }
+
+/* model & modes sheet */
+.r-model-sheet { display: flex; flex-direction: column; gap: 18px; padding-bottom: 12px; }
+.r-model-section { display: flex; flex-direction: column; gap: 8px; }
+.r-model-heading { margin: 0 4px; font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-3); }
+.r-model-list { display: flex; flex-direction: column; border-radius: 14px; background: var(--bg-surface); border: 1px solid var(--line); overflow: hidden; }
+.r-model-row { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 6px 14px; border: 0; border-bottom: 1px solid var(--line-soft); background: transparent; text-align: left; color: var(--fg); }
+.r-model-row.is-current { background: var(--accent-soft); color: var(--accent); }
+.r-model-row[aria-disabled="true"] { color: var(--fg-3); }
+.r-model-spacer { width: 18px; flex: none; }
+.r-model-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.r-model-name { font-weight: 600; overflow-wrap: anywhere; }
+.r-model-info small { font-size: 13px; color: var(--fg-3); }
+.r-model-more { justify-content: flex-start; min-height: 48px; }
+.r-model-thinking { display: flex; flex-direction: column; gap: 8px; }
+.r-thinking-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.r-thinking-chip { height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-bright); background: transparent; font-size: 15px; font-weight: 500; text-transform: capitalize; }
+.r-thinking-chip.is-selected { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.r-thinking-chip[aria-disabled="true"] { color: var(--fg-3); }
+.r-model-hint { font-size: 13px; color: var(--fg-3); }
+.r-goal-panel { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border-radius: 14px; background: var(--bg-surface); border: 1px solid var(--line); }
+.r-goal-label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--fg-3); }
+.r-goal-status { color: var(--lime); }
+.r-goal-usage { font-size: 13px; color: var(--fg-3); }
+.r-goal-actions { display: flex; gap: 8px; }
+.r-goal-actions .r-btn { flex: 1; }
+.r-goal-input, .r-goal-budget { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 10px; background: var(--bg-input); border: 1px solid var(--line); color: var(--fg); font: inherit; font-size: 16px; resize: none; }
+.r-goal-budget { height: 44px; padding-top: 0; padding-bottom: 0; }
+.r-goal-input:focus, .r-goal-budget:focus { outline: none; border-color: var(--accent); }
+.r-plan-row { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 6px 14px; border-radius: 14px; background: var(--bg-surface); border: 1px solid var(--line); }
+.r-plan-label { flex: 1; display: flex; flex-direction: column; }
+.r-plan-label small { font-size: 13px; color: var(--fg-3); }
+.r-plan-value { font-size: 14px; color: var(--fg-3); }
+.r-compact-btn { width: 100%; }

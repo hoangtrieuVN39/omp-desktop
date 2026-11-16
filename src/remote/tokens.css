@@ -1,0 +1,82 @@
+/* OMP Remote design tokens (System.dc.html) for the phone page.
+   The desktop's styles.css still loads for the transcript and question cards;
+   these `.t-<theme>` blocks sit on <html> next to the desktop's `.theme-<id>`
+   class (remote.js `applyTheme`) and win by load order. The accent tokens
+   come from the desktop's accent tweak (accent.js sets them inline).
+   New against the desktop tokens: --on-accent --on-amber --on-rose
+   --st-ask-soft --st-err-soft --st-ok-soft --scrim. Fonts are system stacks
+   (no web fonts: strict CSP, offline). */
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --ease-sheet: cubic-bezier(.2, .8, .2, 1);
+}
+.t-aurora {
+  --bg-app: #0B0D12; --bg-window: #0F1218; --bg-surface: #151922; --bg-elevated: #1C2130;
+  --bg-input: #11151C; --bg-hover: #1F2533; --bg-active: #283044;
+  --fg: #E9EDF5; --fg-2: #C5CCDA; --fg-3: #9BA4B6; --fg-4: #7E879A; --fg-5: #4C5466;
+  --line: #272D3B; --line-soft: #1E2330; --line-bright: #3A4255;
+  --accent: #8B98FF; --accent-deep: #5D6BF0; --accent-soft: rgba(139, 152, 255, .16); --on-accent: #0B0D12;
+  --amber: #F6B95A; --on-amber: #1A1200; --cyan: #62D6E8; --lilac: #BBA2FF; --lime: #A9E46F;
+  --rose: #FF8089; --on-rose: #1A0507;
+  --diff-add-bg: rgba(112, 222, 140, .13); --diff-add-fg: #90E6A6;
+  --diff-rm-bg: rgba(255, 112, 124, .14); --diff-rm-fg: #FFA0A8;
+  --st-ask-soft: rgba(246, 185, 90, .14); --st-err-soft: rgba(255, 128, 137, .14); --st-ok-soft: rgba(169, 228, 111, .13);
+  --scrim: rgba(5, 6, 10, .62);
+  --font-sans: -apple-system, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+.t-daylight {
+  --bg-app: #F3F4F7; --bg-window: #FFFFFF; --bg-surface: #FFFFFF; --bg-elevated: #FFFFFF;
+  --bg-input: #F0F2F6; --bg-hover: #EBEDF2; --bg-active: #E1E5EE;
+  --fg: #121620; --fg-2: #2C3342; --fg-3: #4F5769; --fg-4: #636B7F; --fg-5: #A3AAB8;
+  --line: #DCE0E8; --line-soft: #E9ECF1; --line-bright: #C4CAD6;
+  --accent: #3F4FD9; --accent-deep: #2F3DB8; --accent-soft: rgba(63, 79, 217, .10); --on-accent: #FFFFFF;
+  --amber: #8F5300; --on-amber: #FFFFFF; --cyan: #0A6C7E; --lilac: #5E43C9; --lime: #2F6E0E;
+  --rose: #B8202F; --on-rose: #FFFFFF;
+  --diff-add-bg: #E3F5E8; --diff-add-fg: #17622D; --diff-rm-bg: #FCE8EA; --diff-rm-fg: #A01B2A;
+  --st-ask-soft: #FFF1DC; --st-err-soft: #FDE7E9; --st-ok-soft: #E6F4DD;
+  --scrim: rgba(18, 22, 32, .38);
+  --font-sans: -apple-system, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+.t-phosphor {
+  --bg-app: #040804; --bg-window: #060B06; --bg-surface: #0A120A; --bg-elevated: #0F1A0F;
+  --bg-input: #081008; --bg-hover: #122012; --bg-active: #173017;
+  --fg: #C8F7C0; --fg-2: #A6E59C; --fg-3: #86CC7D; --fg-4: #67A75F; --fg-5: #2F5A2C;
+  --line: #1A2E1A; --line-soft: #132213; --line-bright: #2A4A2A;
+  --accent: #4CFF9A; --accent-deep: #22C46C; --accent-soft: rgba(76, 255, 154, .12); --on-accent: #031006;
+  --amber: #F2D95C; --on-amber: #1A1700; --cyan: #6FF2E6; --lilac: #B9F27A; --lime: #9CFF5C;
+  --rose: #FF7A6B; --on-rose: #1A0503;
+  --diff-add-bg: rgba(76, 255, 154, .12); --diff-add-fg: #8DFFB9;
+  --diff-rm-bg: rgba(255, 122, 107, .14); --diff-rm-fg: #FFA699;
+  --st-ask-soft: rgba(242, 217, 92, .12); --st-err-soft: rgba(255, 122, 107, .13); --st-ok-soft: rgba(156, 255, 92, .11);
+  --scrim: rgba(0, 4, 0, .7);
+  --font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  --font-sans: var(--font-mono);
+}
+
+/* Base typography: 16 px body, 13 px mono, targets >= 44 pt. */
+html, body { height: 100%; margin: 0; overflow: hidden; }
+body {
+  background: var(--bg-app); color: var(--fg);
+  font-family: var(--font-sans); font-size: 16px; line-height: 1.4;
+  user-select: auto; overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent;
+}
+.mono { font-family: var(--font-mono); font-feature-settings: normal; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; text-align: inherit; }
+input, textarea { font: inherit; font-size: 16px; color: inherit; }
+button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+a { color: var(--accent); }
+[hidden] { display: none !important; }
+.ic { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.ic.spin { animation: r-spin 1s linear infinite; }
+@keyframes r-spin { to { transform: rotate(360deg); } }
+.r-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) {
+  .ic.spin { animation: none; }
+  *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+}

@@ -1,17 +1,16 @@
 #!/usr/bin/env node
 // Phone protocol, markdown safety, browser wiring, and notification routing.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import fs, { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const load = path => readFileSync(root + path, "utf8");
-let passed = 0;
+let passed = 0, failed = 0;
 async function check(label, fn) {
-  try { await fn(); } catch (err) { console.error(`FAILED: ${label}`); throw err; }
-  passed++;
+  try { await fn(); passed++; } catch (err) { failed++; console.error(`FAILED: ${label}\n  ${String(err?.stack ?? err).split("\n").slice(0, 4).join("\n  ")}`); }
 }
 const C = createRequire(import.meta.url)(root + "src/remote/client.js");
 const initial = () => ({ device: null, tabs: [], view: null, pending: {}, error: null });
@@ -147,15 +146,37 @@ class Element {
   pause() {}
   async play() {}
   srcObject = null;
-  append(...nodes) { this.children.push(...nodes); }
-  replaceChildren(...nodes) { this._text = ""; this.children = nodes; }
+  append(...nodes) { for (const n of nodes) n.parent = this; this.children.push(...nodes); }
+  replaceChildren(...nodes) { this._text = ""; for (const n of nodes) n.parent = this; this.children = nodes; }
+  remove() { if (this.parent) this.parent.children = this.parent.children.filter(c => c !== this); this.parent = null; }
+  removeAttribute(name) { delete this[name]; }
+  getAttribute(name) { return this[name]; }
+  hasAttribute(name) { return this[name] !== undefined; }
   setAttribute(name, value) { assert.notEqual(name, "style"); this[name] = value; }
   addEventListener(name, fn) { this.listeners[name] = fn; }
   async emit(name) { return this.listeners[name]?.({ preventDefault() {}, target: this }); }
   focus() { focused = this; }
+  // Just enough selector support (tag, .class, [attr], [attr="v"], comma lists) for the phone modules.
+  matches(selector) {
+    return selector.split(",").some(part => {
+      const sel = part.trim();
+      const tag = /^[a-z][a-z0-9]*/i.exec(sel)?.[0];
+      if (tag && this.tagName !== tag) return false;
+      for (const m of sel.matchAll(/\.([\w-]+)/g)) if (!String(this.className ?? "").split(/\s+/).includes(m[1])) return false;
+      for (const m of sel.matchAll(/\[([\w-]+)(?:=["']?([^\]"']*)["']?)?\]/g)) {
+        if (this[m[1]] === undefined) return false;
+        if (m[2] !== undefined && String(this[m[1]]) !== m[2]) return false;
+      }
+      return true;
+    });
+  }
+  querySelectorAll(selector) { return descendants(this).slice(1).filter(n => n.matches(selector)); }
+  querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; }
+  closest() { return null; }
 }
 function descendants(node) { return [node, ...node.children.flatMap(descendants)]; }
-const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
+const flush = async () => { for (let i = 0; i < 60; i++) await Promise.resolve(); };
+const ackLast = async b => { const f = b.frames.filter(x => x.t === "action").at(-1); await b.message({ t: "ack", reqId: f.reqId, ok: true }); await flush(); };
 function browser({ pair = false, token = "saved-token", standalone = true, pairStatus = 200 } = {}) {
   const app = new Element("main");
   const windowHandlers = {}, docHandlers = {};
@@ -186,6 +207,7 @@ function browser({ pair = false, token = "saved-token", standalone = true, pairS
       hidden: false, addEventListener(name, fn) { (docHandlers[name] ??= []).push(fn); },
       get activeElement() { return focused; },
       createElement: tag => new Element(tag),
+      createElementNS: (_ns, tag) => new Element(tag),
       getElementById: id => id === "app" ? app : null,
       documentElement: Object.assign(new Element("html"), { scrollTop: 0, scrollHeight: 1000, clientHeight: 500 }),
     },
@@ -202,18 +224,25 @@ function browser({ pair = false, token = "saved-token", standalone = true, pairS
   vm.runInContext(load("src/remote/client.js"), ctx);
   // Markdown safety itself uses the actual vendored libraries above.
   ctx.OMP_REMOTE_CLIENT.renderMarkdown = text => "SAFE:" + text;
-  for (const f of ["scanner.js", "sessions.js", "transcript.js", "remote.js"])
-    vm.runInContext(load("src/remote/" + f), ctx, { filename: f });
+  // Load the phone modules in the order index.html does, so the page and this test cannot drift.
+  const indexHtml = fs.readFileSync(new URL("../src/remote/index.html", import.meta.url), "utf8");
+  const skip = new Set(["marked.min.js", "highlight.min.js", "marked-setup.js", "accent.js", "scroll-pin.js", "jsQR.js", "client.js"]);
+  for (const [, f] of indexHtml.matchAll(/<script src="\/([^"]+)"/g)) {
+    if (skip.has(f)) continue;
+    const path = fs.existsSync(new URL("../src/remote/" + f, import.meta.url)) ? "src/remote/" + f : "src/app/" + f;
+    vm.runInContext(load(path), ctx, { filename: f });
+  }
   const nodes = () => descendants(app);
   const button = text => nodes().find(n => n.tagName === "button" && n.textContent === text);
   const message = async data => { sockets.at(-1).onmessage({ data: JSON.stringify(data) }); await flush(); };
   const connect = async () => { await flush(); sockets.at(-1).onopen(); await message({ t: "hello", deviceId: "d", name: "Phone" }); };
-  const scrollBox = nodes().find(n => n.className === "scroll");
+  const scrollBox = nodes().find(n => n.className === "r-chat-scroll");
   Object.assign(scrollBox, { scrollTop: 0, scrollHeight: 1000, clientHeight: 500 });
   const key = (name, extra = {}) => { for (const fn of docHandlers.keydown || []) fn({ key: name, preventDefault() {}, ...extra }); };
+  const tab = id => nodes().find(n => n.tagName === "button" && n["data-tab-id"] === id && /r-tab-row/.test(n.className));
   const control = label => nodes().find(n => n.tagName === "button" && n["aria-label"] === label);
   const resize = () => { for (const fn of resizers) fn(); };
-  return { app, nodes, button, control, resize, message, connect, sockets, frames, storage, timers, requests, registrations, ctx, windowHandlers, scrollBox, docHandlers, key };
+  return { app, nodes, button, tab, control, resize, message, connect, sockets, frames, storage, timers, requests, registrations, ctx, windowHandlers, scrollBox, docHandlers, key };
 }
 const view = (busy = false) => ({ t: "view", view: { tabId: "t", busy, messages: [
   { id: "u", role: "user", text: "<img user>" },
@@ -246,50 +275,52 @@ await check("pairing exchanges fragment, stores token, removes fragment, then au
   assert.ok(b.frames[1].reqId);
   assert.equal(b.sockets[0].url, "wss://phone.test:7470/ws");
 });
+
 await check("transcript and asks use text nodes; only assistant markdown receives rendered HTML", async () => {
   const b = browser(); await b.connect(); await b.message(view());
   assert.ok(b.app.textContent.includes("<img user>"));
   assert.ok(b.app.textContent.includes("<Question>"));
-  assert.ok(!b.app.textContent.includes("secret thinking"));
-  assert.ok(b.nodes().some(n => n.tagName === "details"));
+  assert.ok(!b.app.textContent.includes("secret thinking"), "model reasoning never reaches the phone");
   assert.deepEqual(b.nodes().filter(n => n.markup !== undefined).map(n => n.markup), ["SAFE:**reply**"]);
-  await b.button("Deny").emit("click");
+  await b.button("No").emit("click"); await flush();
   assert.equal(b.frames.at(-1).kind, "answer");
   assert.equal(b.frames.at(-1).value, false);
   assert.equal(b.frames.at(-1).askId, "q");
 });
+
 await check("streaming views preserve live question input nodes and answer their current text", async () => {
   const b = browser(); await b.connect();
   const inner = { ...view(true).view, asks: [{ id: "input", kind: "input", title: "Name", message: "Enter name" }] };
-  const message = { t: "view", view: inner };
-  await b.message(message);
-  const input = b.nodes().find(n => n.tagName === "input");
+  await b.message({ t: "view", view: inner });
+  const input = b.nodes().find(n => n.tagName === "input" && /r-ask-input/.test(n.className));
   input.value = "<typed>"; await input.emit("input");
   await b.message({ t: "view", view: { ...inner, messages: [] } });
-  assert.equal(b.nodes().find(n => n.tagName === "input"), input);
-  await b.button("Answer").emit("click");
+  assert.equal(b.nodes().find(n => n.tagName === "input" && /r-ask-input/.test(n.className)), input, "a streaming update keeps the field");
+  await b.button("Answer").emit("click"); await flush();
   assert.equal(b.frames.at(-1).value, "<typed>");
   await b.message({ t: "view", view: { ...inner, asks: [] } });
-  assert.ok(!b.nodes().some(n => n.tagName === "input"));
+  assert.ok(!b.nodes().some(n => n.tagName === "input" && /r-ask-input/.test(n.className)));
 });
+
 await check("composer sends prompt, steers with a draft while busy, stops with an empty one", async () => {
   const b = browser(); await b.connect(); await b.message(view());
   const draft = b.nodes().find(n => n.tagName === "textarea");
-  assert.equal(draft.placeholder, "Message…"); assert.equal(draft["enterkeyhint"], "enter");
+  assert.match(draft.placeholder, /…$/); assert.equal(draft["enterkeyhint"], "send");
   assert.ok(b.control("Send").disabled, "empty idle draft disables send");
-  draft.value = "hello"; await draft.emit("input"); await b.control("Send").emit("click");
+  draft.value = "hello"; await draft.emit("input"); await b.control("Send").emit("click"); await flush();
   assert.equal(b.frames.at(-1).kind, "prompt"); assert.equal(b.frames.at(-1).text, "hello");
-  assert.equal(draft.value, "", "a sent draft is cleared");
+  assert.equal(draft.value, "hello", "the draft stays until the desktop accepts it");
+  await ackLast(b);
+  assert.equal(draft.value, "", "an accepted draft is cleared");
   await b.message(view(true));
-  assert.equal(draft.placeholder, "Steer…");
-  assert.equal(b.control("Stop").textContent, "■", "busy and empty draft shows stop");
-  assert.ok(b.control("Stop").className.includes("stop"));
+  assert.ok(b.control("Stop the running turn").className.includes("is-stop"), "busy and empty draft shows stop");
   draft.value = "redirect"; await draft.emit("input");
-  assert.equal(b.control("Steer").textContent, "↑"); assert.ok(b.control("Steer").className.includes("steer"));
-  await b.control("Steer").emit("click");
+  assert.ok(b.control("Steer — insert into the running turn").className.includes("is-steer"));
+  await b.control("Steer — insert into the running turn").emit("click"); await flush();
   assert.equal(b.frames.at(-1).kind, "steer"); assert.equal(b.frames.at(-1).text, "redirect");
+  await ackLast(b);
   draft.value = "   "; await draft.emit("input");
-  await b.control("Stop").emit("click"); assert.equal(b.frames.at(-1).kind, "abort");
+  await b.control("Stop the running turn").emit("click"); await flush(); assert.equal(b.frames.at(-1).kind, "abort");
 });
 await check("a pinned reader follows a shrinking transcript box; an unpinned one stays", async () => {
   const b = browser(); await b.connect();
@@ -305,11 +336,12 @@ await check("disconnect retries with backoff; revoked token stops reconnect and 
   const b = browser(); await b.connect(); await b.message(view(true));
   b.sockets[0].onclose({ code: 1006 });
   assert.equal(b.timers.at(-1).delay, 1000);
-  assert.ok(b.control("Stop").disabled);
+  assert.ok(b.control("Stop the running turn").disabled);
   b.timers.at(-1).fn(); await b.connect();
   b.sockets.at(-1).onclose({ code: 4401 });
   assert.equal(b.storage.has("omp-remote-token"), false);
-  assert.match(b.app.textContent, /no longer paired/);
+  assert.match(b.app.textContent, /This phone was removed/);
+  assert.ok(b.button("Scan again"), "the pairing screen takes over");
   assert.equal(b.timers.length, 1);
 });
 await check("tab removal clears view and prevents stale actions", async () => {
@@ -322,19 +354,32 @@ await check("tab removal clears view and prevents stale actions", async () => {
 await check("push opt-in registers worker and sends subscription only on user gesture", async () => {
   const b = browser(); await b.connect(); await b.message({ t: "push-key", key: "AQID" });
   assert.equal(b.registrations.length, 0);
-  await b.button("Enable notifications").emit("click");
+  await b.nodes().find(n => n.className === "r-link-chip").emit("click");
+  const sw = () => b.nodes().find(n => n["aria-label"] === "Push notifications" && n.role === "switch");
+  assert.equal(sw()["aria-checked"], "false");
+  assert.equal(b.registrations.length, 0, "opening the screen never registers the worker");
+  await sw().emit("click"); await flush();
   assert.deepEqual(b.registrations, ["/sw.js"]);
   assert.deepEqual(b.frames.at(-1), { t: "push-subscribe", sub: { endpoint: "https://push.test", keys: { auth: "a", p256dh: "p" } } });
-  assert.equal(b.button("Enable notifications").disabled, true, "pending until ack");
+  assert.equal(sw().disabled, true, "pending until ack");
   await b.message({ t: "ack", reqId: null, kind: "push", ok: false, error: "bad subscription" });
-  assert.equal(b.button("Enable notifications").disabled, false, "failed ack re-enables button for retry");
-  await b.button("Enable notifications").emit("click");
+  assert.equal(sw().disabled, false, "failed ack re-enables the switch for a retry");
+  assert.equal(sw()["aria-checked"], "false");
+  await sw().emit("click"); await flush();
   await b.message({ t: "ack", reqId: null, kind: "push", ok: true, error: null });
-  assert.ok(b.button("Notifications enabled").disabled, "enabled after positive ack");
+  assert.equal(sw()["aria-checked"], "true", "enabled after positive ack");
+  await sw().emit("click"); await flush();
+  assert.deepEqual(b.frames.at(-1), { t: "push-unsubscribe" });
+  assert.equal(sw()["aria-checked"], "false", "switching off unsubscribes");
+  await sw().emit("click"); await flush();
+  await b.message({ t: "ack", reqId: null, kind: "push", ok: true, error: null });
   b.sockets.at(-1).onclose({ code: 4401 });
-  assert.ok(b.button("Enable notifications"), "4401 revocation resets notification button label");
+  b.ctx.OMP_REMOTE_UI.setGate(null); b.ctx.OMP_REMOTE_UI.navigate("connection");
+  assert.equal(sw()["aria-checked"], "false", "4401 revocation resets the notification switch");
   const tab = browser({ standalone: false }); await tab.connect(); await tab.message({ t: "push-key", key: "AQID" });
-  assert.ok(tab.button("Enable notifications").hidden);
+  await tab.nodes().find(n => n.className === "r-link-chip").emit("click");
+  assert.ok(!tab.nodes().some(n => n.role === "switch"), "a Safari tab has no push switch");
+  assert.ok(tab.app.textContent.includes("Add to Home Screen"), "it explains how to get notifications");
 });
 await check("service worker displays minimal payload and focuses selected tab or opens encoded URL", async () => {
   const handlers = {}, shown = [], opened = [], navigated = [];
@@ -373,16 +418,7 @@ await check("?tab= selects once; a later reconnect follows the current selection
   none.sockets[0].onclose({ code: 1006 }); none.timers.at(-1).fn(); await none.connect();
   assert.deepEqual(none.frames.filter(f => f.t === "select").map(f => f.tabId), ["t"], "a stale ?tab= is not replayed");
 });
-await check("tool details stay open across view updates", async () => {
-  const b = browser(); await b.connect(); await b.message(view());
-  const open = () => b.nodes().find(n => n.tagName === "details");
-  open().open = true; await open().emit("toggle");
-  await b.message(view());
-  assert.equal(open().open, true);
-  open().open = false; await open().emit("toggle");
-  await b.message(view());
-  assert.equal(open().open, false);
-});
+
 await check("opening a tab jumps to the end; new content keeps it pinned", async () => {
   const b = browser(); await b.connect();
   const root = b.scrollBox;
@@ -391,21 +427,21 @@ await check("opening a tab jumps to the end; new content keeps it pinned", async
   root.scrollHeight = 1400;
   await b.message({ t: "view", view: { ...view().view, messages: [...view().view.messages, { id: "b", role: "assistant", text: "more" }] } });
   assert.equal(root.scrollTop, 900, "a pinned view follows new content");
-  assert.equal(b.button("↓ Newest").hidden, true);
+  assert.equal(b.button("Newest").hidden, true);
 });
-await check("scrolling up keeps the position and shows ↓ Newest, which jumps back", async () => {
+await check("scrolling up keeps the position and shows Newest, which jumps back", async () => {
   const b = browser(); await b.connect();
   const root = b.scrollBox;
   await b.message(view());
   root.scrollTop = 100; root.listeners.scroll();
-  assert.equal(b.button("↓ Newest").hidden, false);
+  assert.equal(b.button("Newest").hidden, false);
   root.scrollHeight = 1400;
   await b.message({ t: "view", view: { ...view().view, messages: [...view().view.messages, { id: "b", role: "assistant", text: "more" }] } });
   assert.equal(root.scrollTop, 100, "an unpinned reader is not moved");
-  assert.equal(b.button("↓ Newest").hidden, false);
-  await b.button("↓ Newest").emit("click");
+  assert.equal(b.button("Newest").hidden, false);
+  await b.button("Newest").emit("click");
   assert.equal(root.scrollTop, 900);
-  assert.equal(b.button("↓ Newest").hidden, true);
+  assert.equal(b.button("Newest").hidden, true);
 });
 await check("switching to another tab jumps to its end even when scrolled up", async () => {
   const b = browser(); await b.connect();
@@ -414,8 +450,9 @@ await check("switching to another tab jumps to its end even when scrolled up", a
   root.scrollTop = 100; root.listeners.scroll();
   await b.message({ t: "view", view: { ...view().view, tabId: "other" } });
   assert.equal(root.scrollTop, 500);
-  assert.equal(b.button("↓ Newest").hidden, true);
+  assert.equal(b.button("Newest").hidden, true);
 });
+
 await check("dialog asks send one answer per question with options or custom text", async () => {
   const b = browser(); await b.connect();
   const questions = [
@@ -423,25 +460,29 @@ await check("dialog asks send one answer per question with options or custom tex
     { id: "b", question: "Pick any", options: [{ label: "P" }, { label: "Q" }], multi: true },
   ];
   await b.message({ t: "view", view: { ...view().view, asks: [{ id: "d", kind: "dialog", title: "T", message: "", questions }] } });
-  await b.button("Answer").emit("click");
-  assert.ok(b.frames.every(f => f.kind !== "answer"), "an unanswered pick-one question is not sent");
+  await b.button("Answer 2 questions").emit("click");
+  const send = () => b.nodes().find(n => n.tagName === "button" && /r-dialog-send/.test(n.className));
+  assert.equal(send().disabled, true, "an unanswered pick-one question cannot be sent");
   await b.button("X").emit("click"); await b.button("P").emit("click"); await b.button("Q").emit("click");
   assert.equal(b.button("X")["aria-checked"], "true");
   assert.equal(b.button("Y")["aria-checked"], "false");
-  const text = b.nodes().filter(n => n.tagName === "input")[0];
+  const text = b.nodes().find(n => n.tagName === "input" && /r-dialog-custom/.test(n.className));
   text.value = " custom "; await text.emit("input");
-  await b.button("Answer").emit("click");
+  assert.equal(send().disabled, false);
+  await send().emit("click"); await flush();
   assert.deepEqual(b.frames.at(-1).value, [
-    { id: "a", selectedOptions: [], customInput: "custom" },
-    { id: "b", selectedOptions: ["P", "Q"] },
+    { id: "a", selectedOptions: ["X"] },
+    { id: "b", selectedOptions: ["P", "Q"], customInput: "custom" },
   ]);
 });
+
 await check("pick-any answers keep option order whatever order the buttons were pressed", async () => {
   const b = browser(); await b.connect();
   const questions = [{ id: "b", question: "Pick any", options: [{ label: "P" }, { label: "Q" }, { label: "R" }], multi: true }];
   await b.message({ t: "view", view: { ...view().view, asks: [{ id: "d", kind: "dialog", title: "T", message: "", questions }] } });
+  await b.button("Answer 1 question").emit("click");
   await b.button("R").emit("click"); await b.button("P").emit("click"); await b.button("Q").emit("click");
-  await b.button("Answer").emit("click");
+  await b.nodes().find(n => n.tagName === "button" && /r-dialog-send/.test(n.className)).emit("click"); await flush();
   assert.deepEqual(b.frames.at(-1).value, [{ id: "b", selectedOptions: ["P", "Q", "R"] }]);
 });
 // Rust's build_action drops a frame without a non-empty reqId, so every
@@ -450,41 +491,42 @@ await check("every select and action frame carries a unique non-empty reqId", as
   const b = browser(); await b.connect();
   await b.message({ t: "tabs", tabs: [{ id: "t", title: "One", project: "" }, { id: "u", title: "Two", project: "" }] });
   await b.message(view());
-  await b.button("Two").emit("click");
+  await b.tab("u").emit("click");
   await b.message({ t: "view", view: { ...view().view, tabId: "u" } });
   const draft = b.nodes().find(n => n.tagName === "textarea");
-  draft.value = "hello"; await draft.emit("input"); await b.control("Send").emit("click");
+  draft.value = "hello"; await draft.emit("input"); await b.control("Send").emit("click"); await flush(); await ackLast(b);
   await b.message({ t: "view", view: { ...view().view, tabId: "u", busy: true } });
-  await b.control("Stop").emit("click");
-  await b.button("Confirm").emit("click");
+  await b.control("Stop the running turn").emit("click"); await flush();
+  await b.button("No").emit("click"); await flush();
   const sent = b.frames.filter(f => f.t === "select" || f.t === "action");
   assert.ok(sent.filter(f => f.t === "select").length >= 2, "connect and tab click both select");
   assert.ok(sent.some(f => f.kind === "prompt") && sent.some(f => f.kind === "answer"));
   for (const frame of sent) assert.ok(typeof frame.reqId === "string" && frame.reqId !== "", JSON.stringify(frame));
   assert.equal(new Set(sent.map(f => f.reqId)).size, sent.length, "request ids are unique");
 });
+
 await check("clicking the active tab keeps its view; another tab clears it until the new view arrives", async () => {
   const b = browser(); await b.connect();
   await b.message({ t: "tabs", tabs: [{ id: "t", title: "One", project: "" }, { id: "u", title: "Two", project: "" }] });
   await b.message(view());
-  await b.button("One").emit("click");
+  await b.tab("t").emit("click");
   assert.ok(b.app.textContent.includes("<img user>"), "the view stays");
   assert.equal(b.control("Send").disabled, true, "idle with an empty draft cannot send");
   const draft = b.nodes().find(n => n.tagName === "textarea");
   draft.value = "hi"; await draft.emit("input");
   assert.equal(b.control("Send").disabled, false, "a draft enables send");
   draft.value = ""; await draft.emit("input");
-  await b.button("Two").emit("click");
+  await b.tab("u").emit("click");
   assert.ok(!b.app.textContent.includes("<img user>"));
   assert.ok(b.control("Send").disabled);
   const selectReq = b.frames.filter(f => f.t === "select").at(-1).reqId;
   await b.message({ t: "ack", reqId: selectReq, ok: false, error: "tab not available" });
   assert.ok(b.app.textContent.includes("<img user>"), "failed select ack restores the previous tab view");
-  draft.value = "recover me"; await draft.emit("input"); await b.control("Send").emit("click");
+  draft.value = "recover me"; await draft.emit("input"); await b.control("Send").emit("click"); await flush();
   const promptReq = b.frames.filter(f => f.t === "action").at(-1).reqId;
-  assert.equal(draft.value, "");
-  await b.message({ t: "ack", reqId: promptReq, ok: false, error: "desktop could not deliver" });
-  assert.equal(draft.value, "recover me", "rejected prompt restores the cleared draft");
+  assert.equal(draft.value, "recover me", "the draft stays while the desktop has not answered");
+  await b.message({ t: "ack", reqId: promptReq, ok: false, error: "desktop could not deliver" }); await flush();
+  assert.equal(draft.value, "recover me", "a rejected prompt keeps the draft");
 });
 await check("trackShown marks only unseen ids and forgets ids that left the view", () => {
   const first = C.trackShown(new Set(), [{ id: "a" }, { id: "b" }]);
@@ -505,49 +547,50 @@ await check("repinFor follows the desktop rule: tab change and own prompts jump,
   assert.equal(C.repinFor(P, prev, v("t", [])), true);
   assert.equal(C.repinFor(P, prev, null), false);
 });
+
 await check("a streaming update replays the fade-in only on new rows", async () => {
   const b = browser();
   await b.connect();
   await b.message(view());
-  const rows = () => b.nodes().filter(n => /^row (user|assistant|tool)/.test(String(n.className)));
-  assert.ok(rows().length >= 3 && rows().every(r => r.className.includes("fade-up")));
+  const rows = () => b.nodes().find(n => n.className === "r-chat-rows").children;
+  assert.ok(rows().length >= 3 && rows().every(r => !r.classList.contains("is-new")), "the first render does not animate");
   const next = view();
   next.view.messages.push({ id: "a2", role: "assistant", text: "more" });
   await b.message(next);
-  const faded = rows().filter(r => r.className.includes("fade-up"));
-  assert.equal(faded.length, 1, "only the new row fades in");
+  assert.equal(rows().filter(r => r.classList.contains("is-new")).length, 1, "only the new row fades in");
 });
-await check("ask card uses the desktop rail and body structure", async () => {
-  const b = browser();
-  await b.connect();
-  await b.message(view());
-  const ask = b.nodes().find(n => String(n.className).startsWith("row ask"));
-  assert.deepEqual(ask.children.map(c => c.className), ["ass-rail", "ass-body"]);
-});
-await check("scan: cancel stops the camera and shows the pair button again", async () => {
+
+await check("scan: cancel stops the camera and shows the scan button again", async () => {
   const b = browser({ token: null });
   let stopped = 0;
   b.ctx.navigator.mediaDevices = { getUserMedia: async () => ({ getTracks: () => [{ stop: () => stopped++ }] }) };
   await flush();
-  await b.button("Pair with your desktop").emit("click");
+  await b.button("Scan QR code").emit("click");
   await flush();
-  assert.equal(b.button("Pair with your desktop").hidden, true);
-  assert.equal(b.button("Cancel").hidden, false);
-  await b.button("Cancel").emit("click");
+  assert.equal(b.button("Scan QR code"), undefined, "the scan button gives way to Cancel scan");
+  assert.ok(b.button("Cancel scan"));
+  await b.button("Cancel scan").emit("click");
   assert.equal(stopped, 1);
-  assert.equal(b.button("Pair with your desktop").hidden, false);
-  assert.equal(b.button("Cancel").hidden, true);
+  assert.ok(b.button("Scan QR code"));
+  assert.equal(b.button("Cancel scan"), undefined);
 });
+const callout = b => b.nodes().filter(n => n.className === "r-callout-text").map(n => n.textContent).join(" | ");
 await check("scan: denial in the installed app points to iOS settings, not Safari", async () => {
   const b = browser({ token: null });
   b.ctx.navigator.mediaDevices = { getUserMedia: async () => { throw new Error("denied"); } };
   await flush();
-  await b.button("Pair with your desktop").emit("click");
+  await b.button("Scan QR code").emit("click");
   await flush();
-  const hint = b.nodes().find(n => n.className === "scan-hint").textContent;
-  assert.match(hint, /iOS Settings/);
-  assert.doesNotMatch(hint, /Safari/);
-  assert.equal(b.button("Pair with your desktop").hidden, false);
+  assert.match(callout(b), /Camera access is off/);
+  assert.match(callout(b), /iOS Settings/);
+  assert.doesNotMatch(callout(b), /Safari/);
+  assert.ok(b.button("Scan again"));
+  const tab = browser({ token: null, standalone: false });
+  tab.ctx.navigator.mediaDevices = { getUserMedia: async () => { throw new Error("denied"); } };
+  await flush();
+  await tab.button("Scan QR code").emit("click"); await flush();
+  assert.match(callout(tab), /browser settings/);
+  assert.match(tab.app.textContent, /Add to Home Screen/, "a browser tab is told to install the app");
 });
 await check("projectName keeps only the last path segment", () => {
   assert.equal(C.projectName("/Users/me/work/omp-desktop"), "omp-desktop");
@@ -571,109 +614,305 @@ const sheetTabs = [
   { id: "t", title: "Work", project: "/Users/me/omp-desktop/", busy: true, hasAsk: false },
   { id: "u", title: "Other", project: "side", busy: false, hasAsk: true },
 ];
-const find = (b, cls) => b.nodes().find(n => String(n.className).split(" ")[0] === cls);
-await check("header shows the active tab with the folder name only, the dot and the other-question count", async () => {
+const calm = tabs => tabs.map(t => ({ ...t, hasAsk: false }));
+// A protocol-2 desktop: its hello names the scope and the capabilities.
+const connect2 = async (b, scope, caps = ["query"]) => {
+  await flush(); b.sockets.at(-1).onopen();
+  await b.message({ t: "hello", deviceId: "d", name: "Phone", proto: 2, caps, scope });
+};
+const waitingCard = (b, id) => b.nodes().find(n => n["data-tab-id"] === id && /r-wait/.test(n.className));
+const byClass = (b, cls) => b.nodes().find(n => n.className === cls);
+const toastText = b => b.nodes().filter(n => /^r-toast /.test(n.className)).map(n => n.textContent).join("|");
+await check("Sessions: open tabs show the folder name only and their status; waiting tabs get their own block and the nav badge", async () => {
   const b = browser(); await b.connect();
   await b.message({ t: "tabs", tabs: sheetTabs }); await b.message(view());
-  const top = find(b, "top");
-  assert.equal(top.tagName, "button");
-  assert.equal(top["aria-haspopup"], "dialog");
-  assert.equal(top["aria-expanded"], "false");
-  assert.equal(find(b, "top-title").textContent, "Work");
-  assert.equal(find(b, "top-project").textContent, "omp-desktop");
-  assert.ok(!top.textContent.includes("/Users"), "the full path never shows");
-  assert.match(find(b, "tab-run-dot").className, /running/);
-  assert.equal(find(b, "top-count").hidden, false);
-  assert.equal(find(b, "top-count").textContent, "1");
-  assert.equal(find(b, "conn-dot").className, "conn-dot ok");
-  await b.message({ t: "tabs", tabs: sheetTabs.map(t => ({ ...t, hasAsk: false })) });
-  assert.equal(find(b, "top-count").hidden, true);
-  b.sockets[0].onclose({ code: 1006 });
-  assert.equal(find(b, "conn-dot").className, "conn-dot off");
+  const row = b.tab("t");
+  assert.ok(row.textContent.includes("omp-desktop") && row.textContent.includes("Running") && row.textContent.includes("On desktop"));
+  assert.ok(!b.app.textContent.includes("/Users"), "the full path never shows");
+  assert.equal(b.tab("u"), undefined, "a waiting tab is not an open-tab row");
+  assert.ok(waitingCard(b, "u").textContent.includes("Question waiting"));
+  const badge = () => b.nodes().filter(n => n.className === "r-nav-badge")[1]; // Sessions, Chat, Review, Agents
+  assert.equal(badge().hidden, false); assert.equal(badge().textContent, "1");
+  await b.message({ t: "tabs", tabs: calm(sheetTabs) });
+  assert.equal(badge().hidden, true);
+  assert.ok(b.tab("u"), "once its question is answered the tab is a plain open tab");
+  assert.equal(waitingCard(b, "u"), undefined);
+  assert.equal(byClass(b, "r-link-chip").textContent, "phone", "the chip names the desktop host");
 });
-await check("tapping the header opens the sheet; Esc, backdrop, handle swipe and selecting close it and return focus", async () => {
+await check("Sessions: tapping a tab selects it with a reqId, opens Chat and warns once that the desktop follows", async () => {
   const b = browser(); await b.connect();
-  await b.message({ t: "tabs", tabs: sheetTabs }); await b.message(view());
-  const top = find(b, "top"), sheet = find(b, "sheet"), backdrop = find(b, "sheet-backdrop"), handle = find(b, "sheet-handle");
-  assert.equal(sheet.hidden, true); assert.equal(backdrop.hidden, true);
-  assert.equal(sheet.role, "dialog"); assert.equal(sheet["aria-modal"], "true");
-  const open = async () => { await top.emit("click"); assert.equal(sheet.hidden, false); assert.equal(backdrop.hidden, false); assert.equal(top["aria-expanded"], "true"); assert.equal(focused, sheet); };
-  const closed = () => { assert.equal(sheet.hidden, true); assert.equal(backdrop.hidden, true); assert.equal(top["aria-expanded"], "false"); assert.equal(focused, top); };
-  await open(); b.key("Escape"); closed();
-  await open(); await backdrop.emit("click"); closed();
-  await open(); await handle.emit("click"); closed();
-  await open();
-  handle.listeners.pointerdown({ clientY: 10 }); handle.listeners.pointermove({ clientY: 30 }); handle.listeners.pointerup({ clientY: 30 });
-  assert.equal(sheet.hidden, false, "a short drag springs back");
-  handle.listeners.pointerdown({ clientY: 10 }); handle.listeners.pointermove({ clientY: 120 }); handle.listeners.pointerup({ clientY: 120 });
-  closed();
-  await open();
-  const row = b.nodes().find(n => String(n.className).startsWith("sheet-tab") && n.textContent.includes("Other"));
-  await row.emit("click");
-  closed();
+  await b.message({ t: "tabs", tabs: [{ id: "t", title: "A", project: "p" }, { id: "u", title: "B", project: "p" }, { id: "v", title: "C", project: "p" }] });
+  await b.message(view());
+  await b.tab("u").emit("click");
   const select = b.frames.filter(f => f.t === "select").at(-1);
   assert.equal(select.tabId, "u"); assert.ok(select.reqId);
+  assert.equal(b.ctx.OMP_REMOTE_UI.current().id, "chat");
+  assert.ok(toastText(b).includes("Opening this tab also switches the desktop to it."));
+  b.ctx.OMP_REMOTE_UI.navigate("sessions");
+  const before = toastText(b);
+  await b.tab("v").emit("click");
+  assert.equal(toastText(b), before, "the hint shows once per session");
 });
-await check("sheet lists every tab with folder and dot, highlights the active one and holds the footer controls", async () => {
-  const b = browser(); await b.connect(); await b.message({ t: "push-key", key: "AQID" });
-  await b.message({ t: "tabs", tabs: sheetTabs }); await b.message(view());
-  const sheet = find(b, "sheet");
-  const rows = b.nodes().filter(n => String(n.className).startsWith("sheet-tab ") || n.className === "sheet-tab");
+await check("quick reply answers a confirm question from the Sessions list; a view-only phone gets a lock instead", async () => {
+  const b = browser(); await b.connect();
+  await b.message({ t: "tabs", tabs: [{ id: "t", title: "Work", project: "p", hasAsk: true }] }); await b.message(view());
+  await b.button("Yes").emit("click"); await flush();
+  const sent = b.frames.at(-1);
+  assert.deepEqual([sent.t, sent.kind, sent.value, sent.askId, sent.tabId], ["action", "answer", true, "q", "t"]);
+  const v = browser(); await connect2(v, "view", []);
+  await v.message({ t: "tabs", tabs: [{ id: "t", title: "Work", project: "p", hasAsk: true }] }); await v.message(view());
+  assert.equal(v.button("Yes"), undefined, "a view-only phone has no answer buttons");
+  assert.ok(waitingCard(v, "t").textContent.includes("Needs Control"));
+  assert.ok(!v.frames.some(f => f.kind === "answer"), "nothing the scope forbids is sent");
+});
+await check("sheets: long press opens the menu; Esc, backdrop and swipe close it; focus goes in and comes back", async () => {
+  const b = browser(); await connect2(b, "control");
+  await b.message({ t: "tabs", tabs: calm(sheetTabs) }); await b.message(view());
+  const row = b.tab("t");
+  const selects = () => b.frames.filter(f => f.t === "select").length;
+  const dialog = () => b.nodes().find(n => n.role === "dialog");
+  const closing = () => dialog().classList.contains("is-closing");
+  const settle = () => { for (const t of b.timers.filter(t => t.delay === 200)) t.fn(); };
+  const openMenu = async () => { row.focus(); await row.listeners.pointerdown({ clientX: 1, clientY: 1 }); b.timers.findLast(t => t.delay === 450).fn(); };
+  const before = selects();
+  await openMenu();
+  assert.equal(dialog()["aria-modal"], "true"); assert.equal(focused, dialog(), "focus moves into the sheet");
+  assert.equal(byClass(b, "r-nav").hidden, false);
+  await row.emit("click");
+  assert.equal(selects(), before, "the click that ends a long press does not open the tab");
+  b.key("Escape"); assert.ok(closing()); settle();
+  assert.equal(dialog(), undefined); assert.equal(focused, row, "focus returns to the opener");
+  await openMenu(); await byClass(b, "r-scrim").emit("click"); assert.ok(closing()); settle();
+  await openMenu();
+  const grip = byClass(b, "r-sheet-handle"); dialog().offsetHeight = 400;
+  grip.listeners.pointerdown({ clientY: 10 }); grip.listeners.pointermove({ clientY: 15 }); grip.listeners.pointerup({ clientY: 15 });
+  assert.equal(closing(), false, "a short drag springs back");
+  grip.listeners.pointerdown({ clientY: 10 }); grip.listeners.pointermove({ clientY: 150 }); grip.listeners.pointerup({ clientY: 150 });
+  assert.ok(closing(), "a drag past a quarter of the sheet closes it");
+  settle();
+  assert.equal(dialog(), undefined);
+});
+await check("session menu: locked rows say what they need and send nothing; other modules' entries appear only when registered", async () => {
+  const b = browser(); await connect2(b, "control");
+  await b.message({ t: "tabs", tabs: calm(sheetTabs) }); await b.message(view());
+  const row = b.tab("t");
+  const openMenu = async () => { await row.listeners.pointerdown({ clientX: 1, clientY: 1 }); b.timers.findLast(t => t.delay === 450).fn(); };
+  const entry = action => b.nodes().find(n => n["data-action"] === action);
+  await openMenu();
+  assert.ok(entry("tree") && entry("export"), "the tree and export screens are registered by their modules");
+  for (const action of ["compact", "rename", "profile", "close"]) {
+    assert.equal(entry(action)["aria-disabled"], "true", action);
+    assert.ok(entry(action).textContent.includes("Needs Manage"), action);
+  }
+  const frames = b.frames.length;
+  await entry("compact").emit("click");
+  assert.ok(toastText(b).includes("This phone has Control. Compact needs Manage — change it on the desktop."), toastText(b));
+  assert.equal(b.frames.length, frames, "a locked entry never reaches the socket");
+  b.key("Escape"); for (const t of b.timers.filter(t => t.delay === 200)) t.fn();
+  const screen = () => ({ el: b.ctx.document.createElement("section") });
+  b.ctx.OMP_REMOTE_UI.registerScreen("tree", screen); b.ctx.OMP_REMOTE_UI.registerScreen("export", screen); // stand-ins: the real ones draw SVG
+  await openMenu();
+  assert.ok(entry("tree")); assert.equal(entry("export")["aria-disabled"], undefined, "Control may export");
+  assert.equal(entry("tree")["aria-disabled"], undefined, "reading the tree needs no scope");
+  await entry("tree").emit("click");
+  assert.deepEqual([b.ctx.OMP_REMOTE_UI.current().id, b.ctx.OMP_REMOTE_UI.current().params.tabId], ["tree", "t"]);
+});
+await check("closing a tab asks first, sends closeTab only on confirm, and a failure offers Retry", async () => {
+  const b = browser(); await connect2(b, "manage");
+  await b.message({ t: "tabs", tabs: calm(sheetTabs) }); await b.message(view());
+  const openMenu = async () => { await b.tab("t").listeners.pointerdown({ clientX: 1, clientY: 1 }); b.timers.findLast(t => t.delay === 450).fn(); };
+  await openMenu();
+  await b.nodes().find(n => n["data-action"] === "close").emit("click"); await flush();
+  assert.ok(b.app.textContent.includes("Close Work?"));
+  assert.ok(b.app.textContent.includes("The agent is running. Closing stops it."));
+  const frames = b.frames.length;
+  await b.button("Cancel").emit("click"); await flush();
+  assert.equal(b.frames.length, frames, "Cancel sends nothing");
+  await openMenu();
+  await b.nodes().find(n => n["data-action"] === "close").emit("click"); await flush();
+  await b.button("Stop and close").emit("click"); await flush();
+  const sent = b.frames.at(-1);
+  assert.deepEqual([sent.t, sent.kind, sent.tabId], ["action", "closeTab", "t"]);
+  assert.ok(sent.reqId);
+  await b.message({ t: "ack", reqId: sent.reqId, ok: false, error: "desktop did not answer" });
+  assert.ok(toastText(b).includes("Desktop didn’t answer"));
+  await b.button("Retry").emit("click"); await flush();
+  const again = b.frames.at(-1);
+  assert.equal(again.kind, "closeTab"); assert.notEqual(again.reqId, sent.reqId);
+  await b.message({ t: "ack", reqId: again.reqId, ok: true });
+});
+await check("new session: pick a desktop-listed project, create via newTab, then follow the new tab; failure stays inline", async () => {
+  const b = browser(); await connect2(b, "manage");
+  await b.message({ t: "tabs", tabs: calm(sheetTabs) }); await b.message(view());
+  await b.control("New session").emit("click");
+  const queries = b.frames.filter(f => f.t === "query" && (f.q === "projects" || f.q === "profiles"));
+  assert.deepEqual(queries.map(q => q.q).sort(), ["profiles", "projects"]);
+  assert.ok(queries.every(q => !("tabId" in q)), "projects and profiles are tab-less");
+  const answer = (q, data) => b.message({ t: "result", reqId: queries.find(f => f.q === q).reqId, ok: true, data });
+  await answer("projects", [{ id: "p1", name: "api-server", open: true }, { id: "p2", name: "docs", open: false }]);
+  await answer("profiles", [{ id: "work", name: "work" }]);
+  const rows = b.nodes().filter(n => n["data-project-id"]);
   assert.equal(rows.length, 2);
-  assert.ok(rows[0].className.includes("active")); assert.ok(!rows[1].className.includes("active"));
-  assert.equal(rows[0]["aria-current"], "true");
-  assert.ok(rows[1].textContent.includes("side") && rows[1].textContent.includes("?"));
-  assert.ok(sheet.textContent.includes("OMP Remote") && sheet.textContent.includes("Connected"));
-  assert.ok(descendants(sheet).includes(b.button("Enable notifications")), "notifications live in the sheet");
-  assert.ok(!b.app.children.some(c => c.tagName === "nav"), "the old tab tiles are gone");
+  assert.ok(b.button("Start in api-server"), "the most recent desktop-listed project is selected by default");
+  await rows[1].emit("click");
+  await rows[0].emit("click");
+  await b.button("Start in api-server").emit("click"); await flush();
+  const sent = b.frames.at(-1);
+  assert.deepEqual([sent.kind, sent.tabId, sent.args], ["newTab", "t", { projectId: "p1" }]);
+  assert.ok(b.button("Starting omp…").disabled);
+  await b.message({ t: "ack", reqId: sent.reqId, ok: false, error: "omp 0.9.1 < required 0.10.0" });
+  assert.ok(b.app.textContent.includes("omp didn’t start") && b.app.textContent.includes("omp 0.9.1 < required 0.10.0"));
+  await b.button("Try again").emit("click"); await flush();
+  const retry = b.frames.at(-1);
+  assert.equal(retry.kind, "newTab");
+  await b.message({ t: "ack", reqId: retry.reqId, ok: true, data: { tabId: "n" } }); await flush();
+  assert.equal(b.frames.filter(f => f.t === "select").at(-1).tabId, "n", "the phone follows the new tab");
+  assert.equal(b.nodes().find(n => n.role === "dialog" && !n.classList.contains("is-closing")), undefined, "the sheet closes");
+  const view_only = browser(); await connect2(view_only, "view");
+  await view_only.message({ t: "tabs", tabs: sheetTabs }); await view_only.message(view());
+  const locked = view_only.control("New session. Needs Manage");
+  assert.ok(locked, "the locked plus names the scope it needs");
+  const count = view_only.frames.length;
+  await locked.emit("click");
+  assert.equal(view_only.frames.length, count);
+  assert.ok(toastText(view_only).includes("View only"));
+});
+await check("saved sessions: loaded with the active tab, searchable, resumed with Manage and locked without", async () => {
+  const b = browser(); await connect2(b, "manage");
+  await b.message({ t: "tabs", tabs: calm(sheetTabs) }); await b.message(view());
+  const q = b.frames.find(f => f.t === "query" && f.q === "savedSessions");
+  assert.equal(q.tabId, "t", "the query rides on the active tab, so the desktop does not switch");
+  await b.message({ t: "result", reqId: q.reqId, ok: true, data: [
+    { id: "s1", title: "Tailscale relay latency", project: "omp-desktop", updatedAt: new Date(Date.now() - 3600_000).toISOString() },
+    { id: "s2", title: "Push payload privacy", project: "docs" },
+  ] });
+  const rows = () => b.nodes().filter(n => n["data-session-id"]);
+  assert.equal(rows().length, 2); assert.ok(rows()[0].textContent.includes("omp-desktop · 1h"));
+  const search = b.nodes().find(n => n.tagName === "input" && n["aria-label"] === "Search saved sessions");
+  search.value = "payload"; await search.emit("input");
+  assert.deepEqual(rows().map(n => n["data-session-id"]), ["s2"]);
+  search.value = "zzz"; await search.emit("input");
+  assert.ok(b.app.textContent.includes("No matches"));
+  search.value = ""; await search.emit("input");
+  await rows()[0].emit("click"); await flush();
+  const sent = b.frames.at(-1);
+  assert.deepEqual([sent.kind, sent.tabId, sent.args], ["resumeSession", "t", { sessionId: "s1" }]);
+  await b.message({ t: "ack", reqId: sent.reqId, ok: true, data: { tabId: "r" } });
+  assert.equal(b.frames.filter(f => f.t === "select").at(-1).tabId, "r");
+  const c = browser(); await connect2(c, "control");
+  await c.message({ t: "tabs", tabs: calm(sheetTabs) }); await c.message(view());
+  await c.message({ t: "result", reqId: c.frames.find(f => f.q === "savedSessions").reqId, ok: true, data: [{ id: "s1", title: "Old", project: "p" }] });
+  const locked = c.nodes().find(n => n["data-session-id"]);
+  assert.ok(locked.textContent.includes("Needs Manage"));
+  const count = c.frames.length;
+  await locked.emit("click"); await flush();
+  assert.equal(c.frames.length, count, "Control cannot resume");
+});
+await check("banners: reconnecting, then offline with Retry that skips the backoff; revoked hands over to pairing", async () => {
+  const b = browser(); await b.connect();
+  const banner = () => b.nodes().find(n => /^r-banner /.test(n.className));
+  assert.equal(banner(), undefined);
+  b.sockets[0].onclose({ code: 1006 });
+  assert.ok(banner().textContent.includes("Reconnecting"));
+  b.timers.at(-1).fn(); await flush();
+  b.sockets.at(-1).onclose({ code: 4503 });
+  assert.ok(banner().textContent.includes("Desktop offline"));
+  const sockets = b.sockets.length;
+  await b.button("Retry").emit("click");
+  assert.equal(b.sockets.length, sockets + 1, "Retry reconnects at once");
+  await b.message({ t: "hello", deviceId: "d", name: "Phone" });
+  assert.equal(banner(), undefined, "the banner leaves with the connection");
+});
+await check("Connection screen: desktop state, device, scope and links only to registered screens", async () => {
+  const b = browser(); await connect2(b, "control");
+  await b.message({ t: "tabs", tabs: calm(sheetTabs) });
+  await byClass(b, "r-link-chip").emit("click");
+  const text = () => b.app.textContent;
+  assert.ok(text().includes("Connected") && text().includes("Live. 2 open tabs."));
+  assert.ok(text().includes("Scope") && text().includes("Settings › Paired phones"));
+  const current = b.nodes().find(n => n.className === "r-scope-cell is-current");
+  assert.ok(current.textContent.startsWith("Control"));
+  assert.ok(text().includes("Approval rules") && text().includes("Usage"), "both screens are registered");
+  b.ctx.OMP_REMOTE_UI.registerScreen("approval-rules", () => ({ el: b.ctx.document.createElement("section") })); // stand-in
+  await b.nodes().filter(n => String(n.className).startsWith("r-link-row")).find(n => n.textContent.includes("Approval rules")).emit("click");
+  assert.equal(b.ctx.OMP_REMOTE_UI.current().id, "approval-rules");
+  b.ctx.OMP_REMOTE_UI.back();
+  await b.control("Back").emit("click");
+  assert.equal(b.ctx.OMP_REMOTE_UI.current().id, "chat", "back lands on the tab root (the test page opens from a push tap on ?tab=, so Chat)");
+});
+await check("pairing: a fresh phone sees steps and no nav; after pairing it shows the scope and Continue (or Turn on notifications)", async () => {
+  const fresh = browser({ token: null });
+  assert.ok(fresh.app.textContent.includes("Pair with your desktop") && fresh.app.textContent.includes("Settings › Remote access › Pair phone"));
+  assert.equal(byClass(fresh, "r-nav").hidden, true, "no bottom nav while pairing");
+  const b = browser({ pair: true, token: null });
+  await flush(); b.sockets.at(-1).onopen();
+  await b.message({ t: "hello", deviceId: "d", name: "Phone", proto: 2, caps: [], scope: "view" });
+  assert.match(callout(b), /Paired with phone/);
+  assert.match(callout(b), /Scope: View only\./);
+  await b.button("Continue").emit("click");
+  assert.equal(byClass(b, "r-nav").hidden, false, "continuing leaves the gate");
+  assert.equal(b.ctx.OMP_REMOTE_UI.current().id, "chat", "a ?tab= launch lands on Chat");
+  const p = browser({ pair: true, token: null });
+  await flush(); p.sockets.at(-1).onopen();
+  await p.message({ t: "hello", deviceId: "d", name: "Phone", proto: 2, caps: [], scope: "control" });
+  await p.message({ t: "push-key", key: "AQID" });
+  await p.button("Turn on notifications").emit("click"); await flush(); await flush(); await flush();
+  assert.deepEqual(p.registrations, ["/sw.js"], "the opt-in follows a tap");
+  assert.equal(byClass(p, "r-nav").hidden, false);
+  const bad = browser({ pair: true, token: null, pairStatus: 410 });
+  await flush();
+  assert.match(callout(bad), /expired or was already used/);
+  assert.ok(bad.button("Scan again"));
 });
 const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; };
 const fakeStream = counter => ({ getTracks: () => [{ stop: () => counter.stopped++ }] });
-const scanHint = b => b.nodes().find(n => n.className === "scan-hint").textContent;
+const noDenial = b => !b.app.textContent.includes("Camera access is off");
 await check("scan race: a camera that arrives after Cancel is stopped and no denial is shown", async () => {
   const b = browser({ token: null }); const counter = { stopped: 0 }; const gum = deferred();
   b.ctx.navigator.mediaDevices = { getUserMedia: () => gum.promise };
   await flush();
-  b.button("Pair with your desktop").emit("click");
-  await b.button("Cancel").emit("click");
+  b.button("Scan QR code").emit("click");
+  await b.button("Cancel scan").emit("click");
   gum.resolve(fakeStream(counter)); await flush();
   assert.equal(counter.stopped, 1, "the late stream's tracks are stopped");
-  assert.equal(b.button("Pair with your desktop").hidden, false);
-  assert.equal(b.button("Cancel").hidden, true);
-  assert.equal(scanHint(b), "", "no hint after cancel");
+  assert.ok(b.button("Scan QR code"));
+  assert.equal(b.button("Cancel scan"), undefined);
+  assert.ok(noDenial(b), "no error after cancel");
 });
 await check("scan race: a late camera error after Cancel shows no denial; Cancel during play stops once", async () => {
   const b = browser({ token: null }); const gum = deferred();
   b.ctx.navigator.mediaDevices = { getUserMedia: () => gum.promise };
   await flush();
-  b.button("Pair with your desktop").emit("click");
-  await b.button("Cancel").emit("click");
+  b.button("Scan QR code").emit("click");
+  await b.button("Cancel scan").emit("click");
   gum.reject(new Error("denied")); await flush();
-  assert.equal(scanHint(b), "");
+  assert.ok(noDenial(b));
   const counter = { stopped: 0 }, play = deferred();
   const c = browser({ token: null });
   c.ctx.navigator.mediaDevices = { getUserMedia: async () => fakeStream(counter) };
   c.nodes().find(n => n.tagName === "video").play = () => play.promise;
   await flush();
-  c.button("Pair with your desktop").emit("click"); await flush();
-  await c.button("Cancel").emit("click");
+  c.button("Scan QR code").emit("click"); await flush();
+  await c.button("Cancel scan").emit("click");
   assert.equal(counter.stopped, 1);
   play.reject(new Error("AbortError")); await flush();
   assert.equal(counter.stopped, 1);
-  assert.equal(scanHint(c), "");
-  assert.equal(c.button("Pair with your desktop").hidden, false);
+  assert.ok(noDenial(c));
+  assert.ok(c.button("Scan QR code"));
 });
-await check("scan race: a second Pair tap replaces the first scan without leaking a stream", async () => {
+await check("scan race: a second scan tap replaces the first scan without leaking a stream", async () => {
   const b = browser({ token: null }); const first = { stopped: 0 }, second = { stopped: 0 };
   const pending = [deferred(), deferred()]; let call = 0;
   b.ctx.navigator.mediaDevices = { getUserMedia: () => pending[call++].promise };
   await flush();
-  b.button("Pair with your desktop").emit("click");
-  b.button("Pair with your desktop").emit("click");
+  // The pairing screen swaps its button for Cancel scan on the first tap, so a
+  // second start can only come from the scanner itself (a double tap before render).
+  const scan = b.button("Scan QR code");
+  scan.emit("click"); scan.emit("click");
   pending[0].resolve(fakeStream(first)); pending[1].resolve(fakeStream(second)); await flush();
   assert.equal(first.stopped, 1, "the replaced scan's stream is stopped");
   assert.equal(second.stopped, 0, "the live scan keeps its camera");
-  await b.button("Cancel").emit("click");
+  await b.button("Cancel scan").emit("click");
   assert.equal(second.stopped, 1);
 });
 await check("trackShown keys rows by id, else role and text, and tracks open asks", () => {
@@ -686,18 +925,17 @@ await check("trackShown keys rows by id, else role and text, and tracks open ask
   assert.deepEqual([...second.fresh], ["ask:r"], "existing rows and asks do not fade again");
   assert.equal(C.trackShown(second.shown, [], []).shown.size, 0, "keys that left are forgotten");
 });
-await check("an id-less row keeps its fade state when its position changes; existing ask cards do not re-fade", async () => {
+
+await check("an id-less row keeps its identity when its position changes; the old ask does not re-render", async () => {
   const b = browser(); await b.connect();
-  const rows = cls => b.nodes().filter(n => String(n.className).startsWith(cls));
+  const rows = () => b.nodes().find(n => n.className === "r-chat-rows").children;
   await b.message({ t: "view", view: { tabId: "t", busy: false, messages: [{ role: "user", text: "hello" }], asks: [{ id: "q", kind: "confirm", title: "One", message: "" }] } });
-  assert.ok(rows("row user")[0].className.includes("fade-up"));
+  const user = rows()[0], ask = b.nodes().find(n => n["data-ask-id"] === "q");
   await b.message({ t: "view", view: { tabId: "t", busy: false, messages: [{ role: "assistant", text: "before" }, { role: "user", text: "hello" }],
     asks: [{ id: "q", kind: "confirm", title: "One", message: "" }, { id: "r", kind: "confirm", title: "Two", message: "" }] } });
-  const user = rows("row user")[0], asks = rows("row ask");
-  assert.ok(!user.className.includes("fade-up"), "the same text keeps its identity");
-  assert.equal(asks.length, 2);
-  assert.ok(!asks[0].className.includes("fade-up"), "the old ask does not replay the fade");
-  assert.ok(asks[1].className.includes("fade-up"), "the new ask fades in");
+  assert.equal(rows().at(-1), user, "the same text keeps its element");
+  assert.equal(b.nodes().filter(n => n["data-ask-id"]).length, 2);
+  assert.ok(!user.classList.contains("is-new"), "no replayed fade");
 });
 await check("production-shaped synthetic ids: a row whose index shifts keeps its fade key", () => {
   const synthetic = (index, role, text) => ({ id: `${role}:${index}`, idSynthetic: true, role, text });
@@ -707,4 +945,5 @@ await check("production-shaped synthetic ids: a row whose index shifts keeps its
   assert.equal(C.messageKey({ id: "user:0", idSynthetic: true, role: "user", text: "a" }), C.messageKey({ id: "user:9", idSynthetic: true, role: "user", text: "a" }));
   assert.equal(C.messageKey({ id: "real", role: "user", text: "a" }), "id:real", "a real id still wins");
 });
+if (failed) { console.error(`remote-client: ${failed} failed, ${passed} passed`); process.exit(1); }
 console.log(`remote-client: ${passed} checks passed`);

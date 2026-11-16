@@ -1,179 +1,211 @@
-// Phone fixed header and modal session sheet.
-// Exposes window.OMP_REMOTE_SESSIONS = { createSessions({ onSelectTab, onEnableNotifications }) }.
-(function () {
-  const C = window.OMP_REMOTE_CLIENT;
+// Sessions screen (Main.dc.html): "Waiting for you" with quick reply, open tabs
+// with status, saved sessions with search and resume, and the entry points to
+// New session and Connection. Registered as the 'sessions' tab. Pure grouping,
+// status and time logic is OMP_REMOTE_MODEL; this file renders and wires.
+// Saved sessions come from proto.query('savedSessions') (the desktop lists at
+// most 200). A tap on an open tab selects it (the desktop follows) and opens Chat;
+// a long press (or right click) opens the session menu.
+(function (root) {
+  const LONG_PRESS_MS = 450, PAGE = 20, STALE_MS = 60000;
 
-  function node(tag, text, className) {
-    const element = document.createElement(tag);
-    if (text !== undefined) element.textContent = text;
-    if (className) element.className = className;
-    return element;
-  }
+  function factory(ctx) {
+    const { M, P, ui } = ctx;
+    const { h, icon, button, statusPill } = P;
+    let saved = { status: "idle", items: [], error: "", at: 0 };
+    let query = "", limit = PAGE, loadSeq = 0;
+    const signatures = {};
 
-  function button(label, click) {
-    const element = node("button", label);
-    element.type = "button";
-    element.addEventListener("click", click);
-    return element;
-  }
+    const chip = h("button", { cls: "r-link-chip", on: { click: () => ui.navigate("connection") } });
+    const plus = h("button", { cls: "r-icon-btn r-icon-btn-primary", attrs: { "aria-label": "New session" }, on: { click: onNew } }, icon("plus"));
+    const header = P.header({ title: "Sessions", large: true });
+    header.actions.append(chip, plus);
 
-  // Dot like the desktop tab's run dot: accent pulse while running, amber
-  // "?" while a question waits, nothing visible when idle.
-  function setDot(dot, tab) {
-    const kind = tab?.hasAsk ? "waiting-user question" : tab?.busy ? "running" : "idle";
-    dot.className = `tab-run-dot ${kind}`;
-    dot.textContent = tab?.hasAsk ? "?" : "";
-    dot.title = tab?.hasAsk ? "waiting for you" : tab?.busy ? "running" : "";
-  }
+    const waitingEl = h("section", { cls: "r-block" });
+    const openEl = h("section", { cls: "r-block" });
+    const savedList = h("div", { cls: "r-saved-list" });
+    const search = P.searchField({ placeholder: "Search saved sessions", label: "Search saved sessions", onInput: value => { query = value; limit = PAGE; renderSaved(ctx.state()); } });
+    const savedEl = h("section", { cls: "r-block" }, P.sectionTitle("Saved sessions"), search.el, savedList);
+    const scroll = h("div", { cls: "r-scroll" }, waitingEl, openEl, savedEl);
+    const el = h("section", { cls: "r-screen", attrs: { "aria-label": "Sessions" } }, header.el, scroll);
 
-  function createSessions({ onSelectTab, onEnableNotifications }) {
-    // Fixed header: the active tab, a count of other tabs with questions and the
-    // connection. Tapping it opens the session sheet.
-    const topDot = node("span", "", "tab-run-dot");
-    const topTitle = node("span", "OMP Remote", "top-title");
-    const topProject = node("span", "", "top-project");
-    topProject.hidden = true;
-    const topText = node("span", undefined, "top-text");
-    topText.append(topTitle, topProject);
-    const topCount = node("span", "", "top-count");
-    topCount.hidden = true;
-    const topCaret = node("span", "▾", "top-caret");
-    const connDot = node("span", "", "conn-dot");
-    const header = node("button", undefined, "top");
-    header.type = "button";
-    header.setAttribute("aria-haspopup", "dialog");
-    header.setAttribute("aria-expanded", "false");
-    header.append(topDot, topText, topCount, topCaret, connDot);
-    header.addEventListener("click", () => (sheetOpen ? closeSheet() : openSheet()));
-
-    // Bottom sheet listing every session; footer holds the app label, the
-    // connection and the notifications control.
-    const backdrop = node("div", undefined, "sheet-backdrop");
-    backdrop.hidden = true;
-    backdrop.addEventListener("click", () => closeSheet());
-    const sheet = node("section", undefined, "sheet");
-    sheet.hidden = true;
-    sheet.setAttribute("role", "dialog");
-    sheet.setAttribute("aria-modal", "true");
-    sheet.setAttribute("aria-label", "Sessions");
-    sheet.setAttribute("tabindex", "-1");
-    const handle = node("button", undefined, "sheet-handle");
-    handle.type = "button";
-    handle.setAttribute("aria-label", "Close sessions");
-    handle.append(node("span", "", "sheet-grip"));
-    const sheetList = node("div", undefined, "sheet-list");
-    const notifications = button("Enable notifications", onEnableNotifications);
-    const sheetConn = node("span", "", "sheet-conn");
-    sheetConn.setAttribute("role", "status");
-    const sheetFoot = node("footer", undefined, "sheet-foot");
-    const sheetInfo = node("div", undefined, "sheet-info");
-    sheetInfo.append(node("strong", "OMP Remote"), sheetConn);
-    sheetFoot.append(sheetInfo, notifications);
-    sheet.append(handle, sheetList, sheetFoot);
-
-    let sheetOpen = false, sheetSignature = null;
-
-    function openSheet() {
-      sheetOpen = true;
-      backdrop.hidden = false;
-      sheet.hidden = false;
-      header.setAttribute("aria-expanded", "true");
-      sheet.focus();
+    function onNew() {
+      const gated = ctx.gate("newTab");
+      if (!gated.ok) return ctx.lockToast(gated, "Starting a session");
+      if (!ctx.anchorTab()) return ui.toast({ tone: "warn", text: "Open a session on the desktop first — the phone acts through an open tab.", duration: 6000 });
+      ui.openSheetById("new-session");
     }
 
-    function closeSheet() {
-      if (!sheetOpen) return;
-      sheetOpen = false;
-      backdrop.hidden = true;
-      sheet.hidden = true;
-      sheet.style.transform = "";
-      header.setAttribute("aria-expanded", "false");
-      header.focus();
+    // The connection chip: a coloured dot, the desktop's name, a spoken state.
+    function renderChip(state) {
+      const view = M.connectionView(state);
+      const tone = view.tone === "ok" ? "ok" : view.tone;
+      chip.replaceChildren(h("span", { cls: `r-dot r-dot-${tone}` }), h("span", { text: state.host }));
+      chip.setAttribute("aria-label", `Connection: ${state.host}, ${view.label.replace(/…$/, "").toLowerCase()}`);
+    }
+    function renderPlus(state) {
+      const gated = M.gate(state, "newTab");
+      plus.className = `r-icon-btn ${gated.ok ? "r-icon-btn-primary" : "r-icon-btn-locked"}`;
+      plus.replaceChildren(icon(gated.ok ? "plus" : "lock"));
+      plus.setAttribute("aria-label", gated.ok ? "New session" : `New session. ${gated.label || "Unavailable"}`);
     }
 
-    // Swipe the handle down to close; a short drag springs back.
-    let dragFrom = null, dragged = false;
-    handle.addEventListener("pointerdown", event => {
-      dragFrom = event.clientY; dragged = false;
-      handle.setPointerCapture?.(event.pointerId);
-    });
-    handle.addEventListener("pointermove", event => {
-      if (dragFrom === null) return;
-      const dy = Math.max(0, event.clientY - dragFrom);
-      if (dy > 8) dragged = true;
-      sheet.style.transform = `translateY(${dy}px)`;
-    });
-    const endDrag = event => {
-      if (dragFrom === null) return;
-      const dy = event.clientY - dragFrom;
-      dragFrom = null;
-      sheet.style.transform = "";
-      if (dy > 60) closeSheet();
-    };
-    handle.addEventListener("pointerup", endDrag);
-    handle.addEventListener("pointercancel", endDrag);
-    handle.addEventListener("click", () => { if (!dragged) closeSheet(); });
-    document.addEventListener("keydown", event => {
-      if (!sheetOpen) return;
-      if (event.key === "Escape") { event.preventDefault(); closeSheet(); return; }
-      if (event.key !== "Tab") return;
-      // Keep focus inside the modal sheet.
-      const items = [...(sheet.querySelectorAll?.("button") || [])].filter(el => !el.hidden && !el.disabled);
-      if (!items.length) { event.preventDefault(); return; }
-      const first = items[0], last = items[items.length - 1], at = document.activeElement;
-      if (event.shiftKey && (at === first || at === sheet)) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && at === last) { event.preventDefault(); first.focus(); }
-    });
+    // ── tab rows ─────────────────────────────────────────────────────────
+    function longPress(row, tabId) {
+      let timer = null, fired = false, at = null;
+      const stop = () => { if (timer) { root.clearTimeout(timer); timer = null; } at = null; };
+      row.addEventListener("pointerdown", event => {
+        fired = false; at = { x: event.clientX, y: event.clientY };
+        timer = root.setTimeout(() => { fired = true; timer = null; ui.openSheetById("session-menu", { tabId }); }, LONG_PRESS_MS);
+      });
+      row.addEventListener("pointermove", event => {
+        if (at && Math.hypot(event.clientX - at.x, event.clientY - at.y) > 10) stop();
+      });
+      row.addEventListener("pointerup", stop);
+      row.addEventListener("pointercancel", stop);
+      row.addEventListener("contextmenu", event => { event.preventDefault?.(); stop(); fired = true; ui.openSheetById("session-menu", { tabId }); });
+      return () => { const was = fired; fired = false; return was; };
+    }
+    function tabRow(tab, state) {
+      const status = M.statusOf(tab);
+      const row = h("button", { cls: "r-tab-row", attrs: { "data-tab-id": tab.id } });
+      const wasLong = longPress(row, tab.id);
+      row.addEventListener("click", () => { if (!wasLong()) ctx.openTab(tab.id); });
+      const sub = [tab.project, tab.profile && `profile ${tab.profile}`].filter(Boolean).join(" · ");
+      const when = M.relativeTime(tab.updatedAt);
+      row.append(
+        icon(status.icon, { className: `r-ic-${status.id}${status.id === "running" ? " spin" : ""}` }),
+        h("span", { cls: "r-tab-body" },
+          h("span", { cls: "r-tab-title" },
+            h("span", { cls: "r-tab-name", text: tab.title || "Untitled" }),
+            tab.id === state.activeTabId && P.chip("On desktop", "desktop"),
+            tab.unread && h("span", { cls: "r-dot", attrs: { role: "img", "aria-label": "Unread" } })),
+          h("span", { cls: "r-tab-sub" },
+            h("span", { text: sub ? `${sub} · ` : "" }),
+            h("span", { cls: `r-tone-${status.id}`, text: status.label }),
+            h("span", { text: when && !tab.busy ? ` · ${when}` : "" }))));
+      return row;
+    }
 
-    function render(tabs, activeId) {
-      const active = tabs.find(tab => tab.id === activeId);
-      const title = active ? active.title || "Untitled" : tabs.length ? "Select a session" : "OMP Remote";
-      const project = C.projectName(active?.project);
-      const others = C.otherQuestionCount(tabs, activeId);
-      topTitle.textContent = title;
-      topProject.textContent = project;
-      topProject.hidden = !project;
-      topCount.textContent = String(others);
-      topCount.hidden = others === 0;
-      setDot(topDot, active);
-      header.setAttribute("aria-label", `${title}${project ? `, ${project}` : ""}${others ? `, ${others} other ${others === 1 ? "session has a question" : "sessions have questions"}` : ""}. Switch session`);
-      // The sheet list is rebuilt only when it changed, so focus survives updates.
-      const signature = JSON.stringify([activeId, tabs]);
-      if (signature === sheetSignature) return;
-      sheetSignature = signature;
-      const focusedTabId = sheetOpen ? (document.activeElement?.getAttribute?.("data-tab-id") ?? document.activeElement?.["data-tab-id"] ?? null) : null;
-      sheetList.replaceChildren();
-      if (!tabs.length) sheetList.append(node("p", "No sessions open on the desktop.", "status"));
-      let restoreFocus = null;
-      for (const tab of tabs) {
-        const item = button("", () => onSelectTab(tab.id, closeSheet));
-        item.className = `sheet-tab${tab.id === activeId ? " active" : ""}`;
-        item.setAttribute("data-tab-id", tab.id);
-        if (tab.id === focusedTabId) restoreFocus = item;
-        if (tab.id === activeId) item.setAttribute("aria-current", "true");
-        const dot = node("span", "", "tab-run-dot");
-        setDot(dot, tab);
-        const text = node("span", undefined, "sheet-tab-text");
-        text.append(node("span", tab.title || "Untitled", "sheet-tab-title"));
-        const folder = C.projectName(tab.project);
-        if (folder) text.append(node("span", folder, "project"));
-        item.append(dot, text);
-        sheetList.append(item);
+    function waitingCard(tab, state) {
+      const ask = state.view?.tabId === tab.id ? (state.view.asks ?? []).find(item => item.kind === "confirm") : null;
+      const canAnswer = ctx.gate("answer");
+      const head = h("div", { cls: "r-wait-head" }, h("span", { cls: "r-tab-name", text: tab.title || "Untitled" }), h("span", { cls: "r-wait-project", text: tab.project }));
+      if (!ask) {
+        const link = h("button", { cls: "r-card r-wait-link", attrs: { "data-tab-id": tab.id }, on: { click: () => ctx.openTab(tab.id) } },
+          h("span", { cls: "r-wait-main" }, head, h("span", { cls: "r-wait-text", text: "Question waiting" })),
+          h("span", { cls: "r-wait-cta", text: canAnswer.ok ? "Answer" : "Open" }));
+        return link;
       }
-      if (focusedTabId) (restoreFocus ?? sheet).focus();
+      const actions = h("div", { cls: "r-wait-actions" });
+      if (canAnswer.ok) {
+        const answer = value => ctx.act("answer", { tabId: tab.id, askId: ask.id, value }, { label: "Answer" });
+        actions.append(
+          button({ label: "No", variant: "secondary", cls: "r-grow", onClick: () => answer(false) }),
+          button({ label: "Yes", variant: "primary", cls: "r-grow", onClick: () => answer(true) }));
+      } else {
+        actions.append(h("span", { cls: "r-lock-chip r-grow", text: canAnswer.label || "Answer on desktop" }));
+      }
+      actions.append(P.iconButton({ icon: "chevron-right", label: "Open question", variant: "line", onClick: () => ctx.openTab(tab.id) }));
+      return h("div", { cls: "r-card r-wait-card", attrs: { "data-tab-id": tab.id } }, head,
+        h("div", { cls: "r-wait-text", text: [ask.title, ask.message].filter(Boolean).join(" — ") || "Question waiting" }), actions);
     }
 
-    function syncControls({ connected, connectionText, canPush, pushKey, notificationsEnabled, notificationsPending }) {
-      sheetConn.textContent = connectionText;
-      connDot.className = `conn-dot ${connected ? "ok" : "off"}`;
-      connDot.title = connected ? "Connected" : "Reconnecting";
-      notifications.textContent = notificationsEnabled ? "Notifications enabled" : "Enable notifications";
-      notifications.hidden = !canPush;
-      notifications.disabled = !connected || !pushKey || notificationsEnabled || notificationsPending;
+    function renderTabs(state) {
+      const groups = M.groupTabs(state.tabs);
+      const askSig = state.view ? [state.view.tabId, (state.view.asks ?? []).map(a => `${a.id}:${a.kind}`)] : null;
+      const sig = JSON.stringify([state.tabs, state.activeTabId, askSig, state.scope, state.legacy, state.connected, state.tabsLoaded]);
+      if (signatures.tabs === sig) return;
+      signatures.tabs = sig;
+      waitingEl.replaceChildren(...(groups.waiting.length ? [
+        P.sectionTitle(`Waiting for you · ${groups.waiting.length}`, { tone: "amber", icon: "st-waiting" }),
+        h("div", { cls: "r-stack" }, ...groups.waiting.map(tab => waitingCard(tab, state))),
+      ] : []));
+      waitingEl.hidden = !groups.waiting.length;
+      const loading = !state.tabsLoaded && state.phase !== "offline" && state.phase !== "revoked" && !state.tabs.length;
+      let body;
+      if (loading) body = P.skeleton(2);
+      else if (groups.open.length) body = h("div", { cls: "r-card r-tab-list" }, ...groups.open.map(tab => tabRow(tab, state)));
+      else if (!groups.waiting.length) {
+        body = P.emptyState({ icon: "nav-sessions", title: "No open tabs", body: M.COPY.emptyTabs });
+      }
+      openEl.replaceChildren(...[
+        groups.open.length && P.sectionTitle(`Open tabs · ${groups.open.length}`),
+        body,
+      ].filter(Boolean));
+      openEl.hidden = !body;
     }
 
-    return { header, backdrop, sheet, render, syncControls };
+    // ── saved sessions ───────────────────────────────────────────────────
+    async function loadSaved(force) {
+      const state = ctx.state();
+      if (!state.connected || state.legacy || !ctx.conn.proto?.canQuery("savedSessions") || !ctx.anchorTab()) return;
+      if (saved.status === "loading" || (!force && saved.status === "ready" && Date.now() - saved.at < STALE_MS)) return;
+      const seq = ++loadSeq;
+      if (saved.status !== "ready") saved = { ...saved, status: "loading" };
+      renderSaved(state);
+      try {
+        const items = await ctx.query("savedSessions");
+        if (seq !== loadSeq) return;
+        saved = { status: "ready", items: Array.isArray(items) ? items : [], error: "", at: Date.now() };
+      } catch (error) {
+        if (seq !== loadSeq) return;
+        saved = { ...saved, status: "error", error: M.errorFeedback(error).text };
+      }
+      renderSaved(ctx.state());
+    }
+
+    async function resume(item) {
+      const gated = ctx.gate("resumeSession");
+      if (!gated.ok) return ctx.lockToast(gated, "Resuming a session");
+      const result = await ctx.act("resumeSession", { args: { sessionId: item.id } }, { label: "Resume" });
+      if (result.ok && result.value?.tabId) ctx.openTab(result.value.tabId);
+    }
+
+    function savedRow(item, state) {
+      const gated = M.gate(state, "resumeSession");
+      const when = M.relativeTime(item.updatedAt);
+      const row = h("button", { cls: "r-saved-row", attrs: { "data-session-id": item.id }, on: { click: () => resume(item) } },
+        h("span", { cls: "r-saved-body" },
+          h("span", { cls: "r-saved-title", text: item.title || item.preview || "Untitled session" }),
+          h("span", { cls: "r-tab-sub", text: [item.project, when].filter(Boolean).join(" · ") })),
+        gated.ok ? h("span", { cls: "r-saved-cta", text: "Resume" }) : P.lockChip(gated.label || "Unavailable"));
+      return row;
+    }
+
+    function renderSaved(state) {
+      const unsupported = state.connected && (state.legacy || !ctx.conn.proto?.canQuery("savedSessions"));
+      const filtered = M.filterSaved(saved.items, query);
+      const sig = JSON.stringify([saved.status, saved.error, filtered.map(i => i.id), limit, state.scope, state.connected, unsupported, Boolean(ctx.anchorTab())]);
+      if (signatures.saved === sig) return;
+      signatures.saved = sig;
+      const kids = [];
+      if (unsupported) kids.push(h("p", { cls: "r-hint", text: "Saved sessions need a newer OMP Desktop." }));
+      else if (saved.status === "idle" && state.connected && !ctx.anchorTab()) kids.push(h("p", { cls: "r-hint", text: "Open a session on the desktop to list saved sessions." }));
+      else if (saved.status === "loading" || (saved.status === "idle" && state.connected)) kids.push(P.skeleton(2));
+      else if (saved.status === "error") {
+        kids.push(P.callout({ tone: "error", icon: "st-error", title: "Couldn’t load saved sessions", body: saved.error }),
+          button({ label: "Retry", variant: "secondary", onClick: () => loadSaved(true) }));
+      } else if (saved.status === "ready" && !saved.items.length) {
+        kids.push(P.emptyState({ icon: "folder", title: "No saved sessions yet", body: "Sessions you start show up here." }));
+      } else if (saved.status === "ready" && !filtered.length) {
+        kids.push(P.emptyState({ icon: "search", title: "No matches", body: "Try another word from the title or project." }));
+      } else if (saved.status === "ready") {
+        kids.push(...filtered.slice(0, limit).map(item => savedRow(item, state)));
+        if (filtered.length > limit) kids.push(button({ label: `Show more (${filtered.length - limit})`, variant: "secondary", onClick: () => { limit += PAGE; renderSaved(ctx.state()); } }));
+      }
+      savedList.replaceChildren(...kids);
+    }
+
+    function update(state) {
+      renderChip(state);
+      renderPlus(state);
+      renderTabs(state);
+      renderSaved(state);
+      if (state.connected && saved.status === "idle") loadSaved();
+    }
+
+    return { el, update, show() { loadSaved(false); } };
   }
 
-  window.OMP_REMOTE_SESSIONS = { createSessions };
-})();
+  root.OMP_REMOTE_UI.registerScreen("sessions", factory, { live: true });
+})(typeof window !== "undefined" ? window : globalThis);

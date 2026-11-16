@@ -4,13 +4,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="theme-color" content="#17191e">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0B0D12">
   <title>OMP Remote</title>
   <link rel="manifest" href="/manifest.json">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/chat.css">
   <link rel="stylesheet" href="/ask.css">
   <link rel="stylesheet" href="/composer.css">
+  <link rel="stylesheet" href="/tokens.css">
+  <link rel="stylesheet" href="/ui.css">
+  <link rel="stylesheet" href="/shell.css">
+  <link rel="stylesheet" href="/screens.css">
+  <link rel="stylesheet" href="/chat-screen.css">
+  <link rel="stylesheet" href="/chat-sheets.css">
+  <link rel="stylesheet" href="/output.css">
+  <link rel="stylesheet" href="/review.css">
+  <link rel="stylesheet" href="/agents.css">
+  <link rel="stylesheet" href="/tree.css">
   <link rel="stylesheet" href="/remote.css">
 </head>
 <body>
@@ -23,9 +34,49 @@
   <script src="/jsQR.js"></script>
   <script src="/client.js"></script>
   <script src="/protocol.js"></script>
+  <script src="/view-model.js"></script>
+  <script src="/icons.js"></script>
+  <script src="/ui-parts.js"></script>
+  <script src="/ui-sheet.js"></script>
+  <script src="/ui-feedback.js"></script>
+  <script src="/ui-shell.js"></script>
   <script src="/scanner.js"></script>
+  <script src="/conversation-tree-graph.js"></script>
+  <script src="/conversation-tree.js"></script>
+  <script src="/chat-logic.js"></script>
+  <script src="/chat-asks-logic.js"></script>
+  <script src="/tool-output-logic.js"></script>
+  <script src="/info-model.js"></script>
+  <script src="/agents-model.js"></script>
+  <script src="/agent-actions.js"></script>
+  <script src="/review-model.js"></script>
+  <script src="/diff-model.js"></script>
+  <script src="/tree-model.js"></script>
+  <script src="/connection.js"></script>
+  <script src="/ctx.js"></script>
+  <script src="/chat-transcript.js"></script>
+  <script src="/chat-asks.js"></script>
+  <script src="/chat-composer.js"></script>
+  <script src="/chat.js"></script>
+  <script src="/chat-message-menu.js"></script>
+  <script src="/chat-model-sheet.js"></script>
+  <script src="/tool-output-screen.js"></script>
+  <script src="/review.js"></script>
+  <script src="/review-files.js"></script>
+  <script src="/review-branch.js"></script>
+  <script src="/diff-screen.js"></script>
+  <script src="/agents.js"></script>
+  <script src="/subagent.js"></script>
+  <script src="/tree.js"></script>
+  <script src="/export.js"></script>
+  <script src="/info-screens.js"></script>
   <script src="/sessions.js"></script>
-  <script src="/transcript.js"></script>
+  <script src="/connection-screen.js"></script>
+  <script src="/pairing.js"></script>
+  <script src="/new-session.js"></script>
+  <script src="/session-menu.js"></script>
+  <script src="/profile-switch.js"></script>
+  <!-- Screens from other modules: add their script tag here, before remote.js. -->
   <script src="/remote.js"></script>
 </body>
 </html>

@@ -1,0 +1,138 @@
+/* Review tab, branch switch, project file browser and pushed Diff screen.
+   Review.dc.html / Diff.dc.html. Token colours are in tokens.css. */
+.r-rv-head { flex-direction: column; align-items: stretch; gap: 10px; }
+.r-rv-top { display: flex; align-items: center; gap: 8px; }
+.r-rv-top .r-title { flex: 1; }
+.r-rv-top .r-icon-btn { background: var(--bg-surface); border: 1px solid var(--line); }
+.r-rv-top .r-icon-btn .ic { width: 20px; height: 20px; }
+.r-rv-sub { font-size: 14px; color: var(--fg-3); min-height: 20px; }
+.r-rv-sub b { color: var(--fg-2); font-weight: 500; }
+.r-rv-branch-slot { align-items: flex-start; }
+.r-rv-branch { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; max-width: 100%; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-surface); font-size: 15px; }
+.r-rv-branch-ic { color: var(--lilac); }
+.r-rv-branch-name { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.r-rv-branch-lock, .r-rv-branch-note { color: var(--fg-3); }
+.r-rv-branch-note { font-size: 13px; white-space: nowrap; }
+.r-rv-body { gap: 16px; }
+.r-pr { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
+.r-pr-head { display: flex; align-items: baseline; gap: 8px; }
+.r-pr-num { flex: none; color: var(--fg-3); font-size: 14px; }
+.r-pr-title { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.r-pr-head .r-chip { flex: none; }
+.r-diffstat { flex: none; font-size: 13px; white-space: nowrap; }
+.r-add { color: var(--diff-add-fg); }
+.r-rm { color: var(--diff-rm-fg); }
+.r-checks { display: flex; flex-wrap: wrap; gap: 6px; font-size: 13px; }
+.r-check { display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 0 9px; border-radius: 999px; box-sizing: border-box; }
+.r-check-success { background: var(--st-ok-soft); color: var(--lime); }
+.r-check-failure { background: var(--st-err-soft); color: var(--rose); }
+.r-check-running, .r-check-queued, .r-check-neutral { border: 1px solid var(--line); color: var(--fg-3); }
+.r-rv-section-head { display: flex; align-items: center; padding: 0 4px; min-height: 20px; }
+.r-rv-section-head .r-section-title { color: var(--fg-3); }
+.r-file-list { display: flex; flex-direction: column; }
+.r-file-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 60px; padding: 10px 12px 10px 14px; border-bottom: 1px solid var(--line-soft); box-sizing: border-box; color: var(--fg); }
+.r-file-row:last-child { border-bottom: 0; }
+.r-file-row:active, .r-fb-row:active, .r-bl-row:active { background: var(--bg-hover); }
+.r-badge { display: flex; flex: none; align-items: center; justify-content: center; width: 26px; height: 26px; box-sizing: border-box; border-radius: 7px; font-size: 12px; font-weight: 700; }
+.r-badge-amber { background: var(--st-ask-soft); color: var(--amber); }
+.r-badge-lime { background: var(--st-ok-soft); color: var(--lime); }
+.r-badge-accent { background: var(--accent-soft); color: var(--accent); }
+.r-badge-rose { background: var(--st-err-soft); color: var(--rose); }
+.r-badge-dashed { border: 1px dashed var(--line-bright); color: var(--fg-3); }
+.r-file-text { display: flex; flex: 1; min-width: 0; flex-direction: column; text-align: left; }
+.r-file-name { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.r-file-sub { font-size: 12px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.r-file-go { color: var(--fg-4); }
+.r-rv-accepted { display: flex; align-items: center; gap: 8px; padding: 10px 4px; font-size: 14px; color: var(--fg-3); }
+.r-rv-accepted .ic { color: var(--lime); }
+.r-rv-accepted .mono { overflow-wrap: anywhere; }
+.r-rv-body > .r-empty { margin: auto 0; }
+
+/* Branch switch sheet: local and remote branches. */
+.r-bl { display: flex; flex-direction: column; gap: 16px; padding: 0 0 12px; }
+.r-bl-list { display: flex; flex-direction: column; gap: 16px; }
+.r-bl-group { gap: 6px; }
+.r-bl-row { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 14px; width: 100%; border-bottom: 1px solid var(--line-soft); }
+.r-bl-row:last-child { border-bottom: 0; }
+.r-bl-row.is-busy { opacity: .6; }
+.r-bl-ic { color: var(--lilac); }
+.r-bl-text { display: flex; flex: 1; min-width: 0; flex-direction: column; }
+.r-bl-name { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.r-bl-note, .r-bl-when { font-size: 12px; color: var(--fg-3); }
+
+/* Browse and text preview. */
+.r-fb-body, .r-fp-body { gap: 12px; }
+.r-fb-crumb { display: flex; align-items: center; flex-wrap: wrap; min-height: 36px; gap: 2px; color: var(--fg-3); font-size: 14px; }
+.r-fb-crumb-part { display: inline-flex; align-items: center; gap: 2px; }
+.r-fb-crumb-link { min-height: 36px; padding: 0 4px; color: var(--fg-2); }
+.r-fb-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 8px 12px; border-bottom: 1px solid var(--line-soft); }
+.r-fb-row:last-child { border-bottom: 0; }
+.r-fb-folder { color: var(--lilac); }
+.r-fb-file { color: var(--fg-3); }
+.r-fb-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.r-fb-name { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.r-fb-sub { font-size: 12px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.r-fb-more { padding: 12px; color: var(--fg-3); font-size: 13px; }
+.r-fp-code { background: var(--bg-input); border: 1px solid var(--line); border-radius: 12px; padding: 8px 0; overflow: auto; font-size: 13px; }
+.r-fp-line { display: grid; grid-template-columns: 40px minmax(0,1fr); gap: 8px; padding: 0 10px; min-height: 20px; line-height: 20px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.r-fp-line > span:first-child { color: var(--fg-4); text-align: right; font-size: 11px; }
+.r-fp-code > .r-btn, .r-fp-code > .r-callout { margin: 12px; }
+
+/* Pushed Diff screen. Its nav is hidden by the shell; its footer reserves the
+   iOS home-indicator area through --sab. */
+.r-df-head { flex: none; background: var(--bg-window); border-bottom: 1px solid var(--line); padding: 0 4px 10px; }
+.r-df-top { display: flex; align-items: center; gap: 2px; }
+.r-df-file { flex: 1; min-width: 0; }
+.r-df-name { font-size: 15px; font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.r-df-meta { font-size: 12px; color: var(--fg-3); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.r-df-icon { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex: none; border-radius: 10px; color: var(--fg-3); }
+.r-df-icon.is-on { color: var(--accent); background: var(--accent-soft); }
+.r-df-jump { display: flex; align-items: center; gap: 8px; padding: 2px 12px 0; }
+.r-df-jump-label { flex: 1; font-size: 14px; color: var(--fg-3); }
+.r-df-step { display: flex; align-items: center; justify-content: center; width: 44px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-surface); }
+.r-df-step:disabled { opacity: .4; }
+.r-df-notice { flex: none; padding: 4px 12px 0; }
+.r-df-notice:empty { display: none; }
+.r-df-notice .r-callout { font-size: 13px; padding: 6px 10px; }
+.r-df-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; background: var(--bg-input); padding: 6px 0; }
+.r-df-rows { position: relative; min-width: 100%; width: max-content; }
+.r-ln { display: grid; grid-template-columns: var(--gut, 30px) var(--gut, 30px) 14px minmax(0,1fr); width: 100%; box-sizing: border-box; font-family: var(--font-mono); font-size: 13px; line-height: 20px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.r-ln > span:nth-child(-n+2) { color: var(--fg-4); text-align: right; padding-right: 6px; font-size: 11px; user-select: none; }
+.r-ln > span:nth-child(3) { user-select: none; }
+.r-ln > span:last-child { tab-size: 4; padding-right: 8px; }
+.r-ln-ctx { color: var(--fg-3); }
+.r-ln-add { background: var(--diff-add-bg); color: var(--diff-add-fg); }
+.r-ln-rem { background: var(--diff-rm-bg); color: var(--diff-rm-fg); }
+.r-ln.is-current { box-shadow: inset 2px 0 var(--accent); }
+.r-df-scroll.is-nowrap .r-ln { white-space: pre; overflow-wrap: normal; width: max-content; min-width: 100%; }
+.r-df-scroll.is-nowrap .r-ln > span:last-child { white-space: pre; }
+.r-df-scroll:not(.is-nowrap) .r-df-rows { width: 100%; }
+.r-fold { display: block; width: 100%; min-height: 28px; margin: 4px 0; padding: 4px 12px; background: var(--bg-surface); color: var(--fg-4); font-size: 12px; text-align: left; }
+.r-fold:hover { color: var(--fg-2); }
+.r-df-message { padding: 24px 16px; }
+.r-df-message .r-empty { padding-top: 20vh; }
+.r-df-foot { flex: none; display: flex; gap: 8px; padding: 10px calc(16px + var(--sar)) max(12px, var(--sab)) calc(16px + var(--sal)); background: var(--bg-window); border-top: 1px solid var(--line); }
+.r-df-foot > .r-btn { flex: 1; height: 50px; min-width: 0; border-radius: 12px; padding: 0 4px; font-size: 15px; }
+.r-df-foot.is-locked { flex-wrap: wrap; }
+.r-df-foot .r-btn-locked { border-style: dashed; color: var(--fg-3); }
+.r-df-foot .r-btn-locked .ic { width: 16px; height: 16px; }
+.r-df-lock-note { width: 100%; text-align: center; color: var(--fg-3); font-size: 12px; }
+.r-df-done { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 50px; padding: 0 8px 0 14px; border-radius: 12px; border: 1px solid var(--line-bright); background: var(--bg-elevated); }
+.r-df-done-text { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.r-ok { color: var(--lime); }
+.r-bad { color: var(--rose); }
+.r-df-done .r-btn { flex: none; padding: 0 8px; }
+
+/* The destructive reject sheet is an inset, iOS-style card, matching Diff.
+   It uses the shared ui-sheet focus trap, Esc, backdrop and swipe handling. */
+.r-sheet.r-sheet-float { left: 8px; right: 8px; bottom: max(8px, var(--sab)); border: 1px solid var(--line-bright); border-radius: 22px; max-height: calc(100% - 16px); }
+.r-sheet-float .r-sheet-handle { display: none; }
+.r-sheet-float .r-sheet-body { padding: 0; }
+.r-sheet-float .r-sheet-foot { display: none; }
+.r-reject { display: flex; flex-direction: column; gap: 14px; padding: 20px 16px 28px; }
+.r-reject-tile { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 12px; background: var(--st-err-soft); color: var(--rose); }
+.r-reject-title { margin: 0; font-size: 20px; font-weight: 700; }
+.r-reject-text { margin: 0; color: var(--fg-2); }
+.r-reject-text b { color: var(--fg); font-weight: 700; }
+.r-reject-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.r-reject-actions .r-btn { height: 52px; font-size: 17px; border-radius: 14px; }
