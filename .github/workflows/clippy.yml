@@ -1,0 +1,41 @@
+# Clippy — the strict lint AGENTS.md requires (pedantic + nursery, -D warnings).
+# Runs on demand and on pushes to the phone-remote branch of this fork, whose
+# maintainer has no local MSVC toolchain to run it.
+
+name: Clippy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [phone-remote]
+    paths:
+      - 'src-tauri/**'
+      - '.github/workflows/clippy.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  clippy:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Rust nightly with clippy
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Rust build artefacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: clippy-windows
+
+      - name: cargo fmt --check
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+      - name: cargo clippy (pedantic + nursery)
+        working-directory: src-tauri
+        run: cargo clippy --locked --all-targets --all-features -- -W clippy::pedantic -W clippy::nursery -D warnings
