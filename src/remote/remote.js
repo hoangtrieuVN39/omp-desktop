@@ -60,6 +60,9 @@
     socket.send(JSON.stringify(frame));
     return true;
   }
+  // Protocol-2 requests (queries, uploads, new actions) for the coming UI;
+  // it answers only its own frames, everything else flows through `reduce`.
+  const proto = window.OMP_REMOTE_PROTO?.create({ send: transmit }) ?? null;
   function action(kind, fields = {}) {
     if (!state.view || !connected) return null;
     const frame = C.actionFor(kind, { tabId: state.view.tabId, ...fields });
@@ -174,7 +177,7 @@
     socket.onmessage = event => {
       try {
         const msg = JSON.parse(event.data);
-        state = C.reduce(state, msg);
+        state = proto ? C.applyFrame(state, msg, proto) : C.reduce(state, msg);
         if (msg.t === "hello") {
           connected = true; attempt = 0; connectionText = "Connected";
           const wanted = pendingTab ?? selected;
@@ -218,6 +221,7 @@
     };
     socket.onclose = event => {
       connected = false;
+      proto?.disconnect();
       state = { ...state, device: null, pending: {} };
       sentDrafts.clear(); selectReqId = null;
       notificationsPending = false;

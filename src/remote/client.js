@@ -134,7 +134,14 @@
     return String(draft ?? "").trim() ? "steer" : "stop";
   }
 
-  const client = { reduce, actionFor, selectFor, askControls, backoff, renderMarkdown, pairCodeFromScan, trackShown, messageKey, repinFor, projectName, otherQuestionCount, composerAction };
+  // One frame through the page's state: a frame that answers a protocol-2
+  // request (`OMP_REMOTE_PROTO` handleFrame) belongs to its promise and skips
+  // the reducer; hello and scope reach both.
+  function applyFrame(state, msg, proto) {
+    return proto && proto.handleFrame(msg) ? state : reduce(state, msg);
+  }
+
+  const client = { reduce, applyFrame, actionFor, selectFor, askControls, backoff, renderMarkdown, pairCodeFromScan, trackShown, messageKey, repinFor, projectName, otherQuestionCount, composerAction };
   if (typeof window !== "undefined") window.OMP_REMOTE_CLIENT = client;
   if (typeof module !== "undefined" && module.exports) module.exports = client;
 })(typeof window !== "undefined" ? window : globalThis);
