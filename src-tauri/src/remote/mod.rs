@@ -1,4 +1,5 @@
 pub mod assets;
+pub mod audit;
 pub mod bridge;
 pub mod commands;
 pub mod devices;
@@ -16,8 +17,10 @@ pub mod push_send;
 pub mod push_subs;
 pub mod qr;
 pub mod rand;
+pub mod scope;
 pub mod server;
 pub mod settings;
 pub mod tls;
 pub mod tracker;
+pub mod transfers;
 pub mod ws;

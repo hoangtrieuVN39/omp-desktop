@@ -8,6 +8,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use super::rand::{ct_eq, random_b64};
+use super::scope::Scope;
 use super::tls::write_private;
 use crate::json_store;
 
@@ -34,6 +35,14 @@ pub struct Device {
     pub last_seen: u64,
     #[serde(default)]
     pub push: Vec<PushSubscription>,
+    /// What the phone may do. Devices paired before scopes existed had what
+    /// is now `control`, and keep it; new pairings start at `view`.
+    #[serde(default = "legacy_scope")]
+    pub scope: Scope,
+}
+
+const fn legacy_scope() -> Scope {
+    Scope::Control
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -79,6 +88,7 @@ impl DeviceStore {
             paired_at: now,
             last_seen: now,
             push: Vec::new(),
+            scope: Scope::View,
         };
         let mut cache = self.devices();
         self.update(&mut cache, Instant::now(), |devices| {
@@ -144,6 +154,23 @@ impl DeviceStore {
             device.name = name;
             Ok(())
         })
+    }
+
+    pub fn set_scope(&self, id: &str, scope: Scope) -> Result<(), String> {
+        self.update_device(id, |device| {
+            device.scope = scope;
+            Ok(())
+        })
+    }
+
+    /// The device's current scope; `None` once it is no longer paired. Read
+    /// for every phone request, so a scope change or revoke applies to
+    /// sockets that are already open.
+    pub fn scope_of(&self, id: &str) -> Option<Scope> {
+        self.devices()
+            .iter()
+            .find(|device| device.id == id)
+            .map(|device| device.scope)
     }
 
     /// False means no durable revocation occurred (unknown id or write error).

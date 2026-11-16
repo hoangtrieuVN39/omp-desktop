@@ -86,12 +86,24 @@ function _SRR_Pair({ row, ctx, query }) {
   );
 }
 
-function _SRR_Device({ device, onRename, onRevoke }) {
+// What a paired phone may do (remote/scope.rs). New pairings start at "view".
+const _SRR_SCOPES = [
+  { value: "view", label: "View only" },
+  { value: "control", label: "Control" },
+  { value: "manage", label: "Manage" },
+];
+
+function _SRR_Device({ device, onRename, onRevoke, onScope }) {
   const Btn = window.SettingsButton;
   const [asking, setAsking] = React.useState(false);
   return (
     <div className="st-rem-dev">
       <_SRR_Field value={device.name} label={OMP_TR("Device name")} mono={false} width={220} onCommit={text => text.trim() && onRename(device.id, text.trim())} />
+      <select className="st-rem-input" value={device.scope ?? "view"} aria-label={OMP_TR("Phone permissions")}
+        title={OMP_TR("View only: read and get notifications. Control: also prompt, steer, stop and answer. Manage: also open and close tabs, change models, discard files and change approval rules.")}
+        onChange={e => onScope(device.id, e.target.value)}>
+        {_SRR_SCOPES.map(s => <option key={s.value} value={s.value}>{OMP_TR(s.label)}</option>)}
+      </select>
       <span className="st-rem-sub">{device.connected ? OMP_TR("connected") : OMP_TR("offline")}{device.pushSubscribed ? ` · ${OMP_TR("push")}` : ""}</span>
       <div className="st-btns" style={{ marginLeft: "auto" }}>
         {asking ? (
@@ -116,7 +128,8 @@ function _SRR_Devices({ row, ctx, query }) {
         {devices.map(d => (
           <_SRR_Device key={d.id} device={d}
             onRename={(id, name) => run(() => ctx.bridge.remoteDeviceRename(id, name))}
-            onRevoke={id => run(() => ctx.bridge.remoteDeviceRevoke(id))} />
+            onRevoke={id => run(() => ctx.bridge.remoteDeviceRevoke(id))}
+            onScope={(id, scope) => run(() => ctx.bridge.remoteDeviceSetScope(id, scope))} />
         ))}
         {error && <div className="st-row-error">{error}</div>}
       </div>

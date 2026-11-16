@@ -250,3 +250,45 @@ fn the_store_is_never_readable_by_others_while_it_is_written() {
     assert_eq!(mode, 0o600);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn new_pairings_start_read_only_and_legacy_devices_keep_control() {
+    let dir = tempdir("scope-defaults");
+    let path = dir.join("remote-devices.json");
+    // A record written before scopes existed has no `scope` key.
+    std::fs::write(
+        &path,
+        r#"[{"id":"old","name":"iPhone","tokenHash":"00","pairedAt":1,"lastSeen":1,"push":[]}]"#,
+    )
+    .unwrap();
+    let store = DeviceStore::load(path.clone());
+    assert_eq!(store.scope_of("old"), Some(Scope::Control));
+    let (dev, _) = store.add("new phone").unwrap();
+    assert_eq!(store.scope_of(&dev.id), Some(Scope::View));
+    assert_eq!(store.scope_of("missing"), None);
+    // The legacy record gets its scope written out on the next save.
+    let raw = std::fs::read_to_string(&path).unwrap();
+    assert!(raw.contains(r#""scope": "control""#), "{raw}");
+}
+
+#[test]
+fn set_scope_persists_and_applies_to_the_cached_store() {
+    let dir = tempdir("scope-set");
+    let path = dir.join("remote-devices.json");
+    let store = DeviceStore::load(path.clone());
+    let (dev, token) = store.add("iPhone").unwrap();
+    store.set_scope(&dev.id, Scope::Manage).unwrap();
+    assert_eq!(store.scope_of(&dev.id), Some(Scope::Manage));
+    assert_eq!(store.authenticate(&token).unwrap().scope, Scope::Manage);
+    assert_eq!(
+        DeviceStore::load(path).scope_of(&dev.id),
+        Some(Scope::Manage)
+    );
+    assert!(store.set_scope("missing", Scope::View).is_err());
+    assert!(store.revoke(&dev.id));
+    assert_eq!(
+        store.scope_of(&dev.id),
+        None,
+        "a revoked device has no scope"
+    );
+}

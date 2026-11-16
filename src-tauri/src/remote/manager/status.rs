@@ -65,6 +65,7 @@ impl Core {
                 name: device.name,
                 paired_at: device.paired_at,
                 last_seen: device.last_seen,
+                scope: device.scope,
             })
             .collect();
         let state = self.state();

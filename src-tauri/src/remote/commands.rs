@@ -7,11 +7,13 @@ use gix::bstr::ByteSlice as _;
 
 use tauri::{AppHandle, Manager};
 
+use super::audit::Entry;
 use super::emit::Status;
 use super::hub::PublishPayload;
 use super::manager::{PairStart, RemoteManager};
 use super::net::{self, Iface};
 use super::settings::RemoteSettings;
+use super::transfers::Image;
 
 /// Run `work` against the managed [`RemoteManager`] on a blocking thread.
 async fn with_manager<T: Send + 'static>(
@@ -89,16 +91,70 @@ pub async fn remote_publish(payload: PublishPayload, app: AppHandle) -> Result<(
     .await
 }
 
+/// The webview's answer to a phone request; `data` is a query's result (or
+/// an action's, such as a download id).
 #[tauri::command]
 pub async fn remote_action_result(
     req_id: String,
     ok: bool,
     error: Option<String>,
+    data: Option<serde_json::Value>,
     app: AppHandle,
 ) -> Result<(), String> {
     with_manager(app, move |manager| {
-        manager.hub().action_result(&req_id, ok, error.as_deref());
+        manager
+            .hub()
+            .action_result(&req_id, ok, error.as_deref(), data);
         Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn remote_device_set_scope(
+    id: String,
+    scope: String,
+    app: AppHandle,
+) -> Result<Status, String> {
+    with_manager(app, move |manager| manager.device_set_scope(&id, &scope)).await
+}
+
+#[tauri::command]
+pub async fn remote_audit_list(limit: usize, app: AppHandle) -> Result<Vec<Entry>, String> {
+    with_manager(app, move |manager| Ok(manager.audit_list(limit))).await
+}
+
+/// A finished image upload of `device_id` for its prompt; `None` when it is
+/// unknown, unfinished, expired or already taken.
+#[tauri::command]
+pub async fn remote_take_upload(
+    device_id: String,
+    upload_id: String,
+    app: AppHandle,
+) -> Result<Option<Image>, String> {
+    with_manager(app, move |manager| {
+        Ok(manager.take_upload(&device_id, &upload_id))
+    })
+    .await
+}
+
+/// Offer the HTML export omp just wrote to one paired device. Only `.html`
+/// files are offered: the path comes from omp's `export_html` answer.
+#[tauri::command]
+pub async fn remote_offer_download(
+    device_id: String,
+    path: String,
+    app: AppHandle,
+) -> Result<String, String> {
+    with_manager(app, move |manager| {
+        let path = std::path::PathBuf::from(path);
+        let html = path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("html"));
+        if !html || !path.is_absolute() {
+            return Err("only an absolute .html export can be offered".to_owned());
+        }
+        manager.offer_download(&device_id, path)
     })
     .await
 }

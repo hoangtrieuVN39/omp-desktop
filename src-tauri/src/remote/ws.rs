@@ -17,6 +17,7 @@ use tungstenite::WebSocket;
 
 mod frames;
 mod messages;
+mod uploads;
 use frames::{close_with, drain, flush_outbox, read_step, read_text, Frame, CLOSE_OVERLOAD};
 
 use super::devices::{Device, DeviceStore};

@@ -4049,6 +4049,13 @@
     },
     newSession()       { _send({ type: "new_session" }); },
     exportHtml()       { _send({ type: "export_html" }); },
+    /** Export the active tab as HTML and resolve to the file omp wrote
+     *  (`{ path }` in its response), or null when it failed. Used by the
+     *  phone's "Export HTML", which then offers that file to the phone. */
+    async exportHtmlFile() {
+      const data = await _sendWithResponse({ type: "export_html" });
+      return typeof data?.path === "string" ? data.path : null;
+    },
     refreshModels()    { _initFetch(); },
 
     // ── Subagent manager ──────────────────────────────────────────────────────
@@ -4447,8 +4454,27 @@
     remotePublish(payload) {
       return _invokeResult("remote_publish", { payload });
     },
-    remoteActionResult(reqId, ok, error) {
-      return _invokeResult("remote_action_result", { reqId, ok, error });
+    /** `data`: a query's result, or an action's (a download id). */
+    remoteActionResult(reqId, ok, error, data) {
+      return _invokeResult("remote_action_result", { reqId, ok, error: error ?? null, data: data ?? null });
+    },
+    remoteDeviceSetScope(id, scope) {
+      return _invokeResult("remote_device_set_scope", { id, scope });
+    },
+    async remoteAuditList(limit = 100) {
+      const r = await _invokeResult("remote_audit_list", { limit });
+      return r.ok ? r.value : [];
+    },
+    /** A finished phone upload `{ mimeType, data }` of `deviceId`, or null. */
+    async remoteTakeUpload(deviceId, uploadId) {
+      const r = await _invokeResult("remote_take_upload", { deviceId, uploadId });
+      return r.ok ? r.value : null;
+    },
+    /** Offer an export file to one device; resolves to the download id. */
+    async remoteOfferDownload(deviceId, path) {
+      const r = await _invokeResult("remote_offer_download", { deviceId, path });
+      if (!r.ok) throw new Error(r.error);
+      return r.value;
     },
     remoteReady(ready) {
       return _invokeResult("remote_ready", { ready });

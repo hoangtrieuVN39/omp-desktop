@@ -83,10 +83,21 @@ impl TestServer {
     }
 
     fn pair_named(&self, name: &str) -> String {
+        self.pair_scoped(name, Some(crate::remote::scope::Scope::Control))
+    }
+
+    /// Pair a phone; `scope` replaces the read-only default a new pairing
+    /// gets (the tests written before scopes act as a `control` phone).
+    fn pair_scoped(&self, name: &str, scope: Option<crate::remote::scope::Scope>) -> String {
         let code = self.pairing.start(Instant::now()).unwrap();
         let reply = self.post_pair(&format!(r#"{{"code":"{code}","name":"{name}"}}"#));
         assert_eq!(reply.status, 200);
         let body: Value = serde_json::from_slice(&reply.body).unwrap();
+        if let Some(scope) = scope {
+            self.devices
+                .set_scope(body["deviceId"].as_str().unwrap(), scope)
+                .unwrap();
+        }
         body["token"].as_str().unwrap().to_owned()
     }
 
@@ -240,7 +251,7 @@ fn action_round_trip_and_timeout() {
     assert_eq!((a.kind.as_str(), a.text.as_deref()), ("prompt", Some("hi")));
     assert_eq!(a.tab_id.as_str(), "t1");
     assert_ne!(a.req_id.as_str(), "r1", "hub uses its own correlation id");
-    s.hub.action_result(&a.req_id, true, None);
+    s.hub.action_result(&a.req_id, true, None, None);
     let ack = ws.read_json_where(|m| m["t"] == "ack");
     assert_eq!(
         (ack["reqId"].as_str(), ack["ok"].as_bool()),
@@ -250,7 +261,7 @@ fn action_round_trip_and_timeout() {
     let select = s.emit.next_action();
     assert_eq!(select.kind, "select");
     s.hub
-        .action_result(&select.req_id, false, Some("no such tab"));
+        .action_result(&select.req_id, false, Some("no such tab"), None);
     let ack = ws.read_json_where(|m| m["t"] == "ack");
     assert_eq!(
         (ack["reqId"].as_str(), ack["error"].as_str()),
@@ -264,7 +275,7 @@ fn action_round_trip_and_timeout() {
         (Some("r2"), Some(false))
     );
     assert_eq!(ack["error"], "desktop did not answer");
-    s.hub.action_result(&abort.req_id, true, None); // late answer is ignored
+    s.hub.action_result(&abort.req_id, true, None, None); // late answer is ignored
 }
 
 #[test]
@@ -293,8 +304,8 @@ fn same_req_id_from_two_connections_is_forwarded_independently_and_duplicate_on_
     );
     // Answer in reverse order: each result goes to the connection it belongs to.
     s.hub
-        .action_result(&a2.req_id, false, Some("tab not available"));
-    s.hub.action_result(&a1.req_id, true, None);
+        .action_result(&a2.req_id, false, Some("tab not available"), None);
+    s.hub.action_result(&a1.req_id, true, None, None);
     let ack2 = second.read_json_where(|m| m["t"] == "ack");
     let ack1 = first.read_json_where(|m| m["t"] == "ack");
     assert_eq!(
@@ -342,7 +353,7 @@ fn bad_actions_are_refused_without_reaching_the_webview() {
     ws.send_text(r#"{"t":"action","reqId":"b3","tabId":"t1","kind":"abort"}"#);
     let forwarded = s.emit.next_action();
     assert_eq!(forwarded.tab_id, "t1");
-    s.hub.action_result(&forwarded.req_id, true, None);
+    s.hub.action_result(&forwarded.req_id, true, None, None);
     assert_eq!(
         ws.read_json_where(|m| m["t"] == "ack")["reqId"],
         "b3",
@@ -529,9 +540,11 @@ fn revoked_connection_gets_its_close_and_nothing_else() {
         device_id: device.id,
         tab_id: "t1".to_owned(),
         kind: "abort".to_owned(),
+        query: false,
         text: None,
         ask_id: None,
         value: None,
+        args: None,
         dispatched_at: None,
     };
     s.hub.action(conn, &action);
@@ -750,7 +763,7 @@ fn authenticated_ping_and_long_ask_id_work_without_spurious_timeout_or_truncatio
     ));
     let action = s.emit.next_action();
     assert_eq!(action.ask_id.as_deref(), Some(ask_id.as_str()));
-    s.hub.action_result(&action.req_id, true, None);
+    s.hub.action_result(&action.req_id, true, None, None);
     assert_eq!(client.read_json_where(|m| m["t"] == "ack")["ok"], true);
 
     let too_long = "q".repeat(257);
@@ -759,4 +772,199 @@ fn authenticated_ping_and_long_ask_id_work_without_spurious_timeout_or_truncatio
     ));
     let rejected = client.read_json_where(|m| m["t"] == "ack");
     assert_eq!(rejected["ok"], false);
+}
+
+#[test]
+fn hello_announces_protocol_caps_and_scope() {
+    let s = test_server("ws-hello-v2");
+    let token = s.pair_scoped("Phone", None);
+    let mut ws = s.ws_connect();
+    ws.send_text(&format!(r#"{{"t":"auth","token":"{token}"}}"#));
+    let hello = ws.read_json();
+    assert_eq!(hello["t"], "hello");
+    assert_eq!(hello["proto"], 2);
+    assert_eq!(hello["scope"], "view", "a new pairing is read-only");
+    let caps: Vec<&str> = hello["caps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert_eq!(caps, ["query", "scope", "upload", "download"]);
+}
+
+#[test]
+fn a_view_phone_may_read_and_follow_tabs_but_not_act() {
+    let s = test_server("ws-scope-view");
+    let token = s.pair_scoped("Phone", None);
+    let mut ws = s.authed_with(&token);
+    ws.send_text(r#"{"t":"action","reqId":"p","tabId":"t1","kind":"prompt","text":"hi"}"#);
+    let ack = ws.read_json_where(|m| m["t"] == "ack");
+    assert_eq!(
+        (
+            ack["reqId"].as_str(),
+            ack["ok"].as_bool(),
+            ack["error"].as_str()
+        ),
+        (Some("p"), Some(false), Some("not allowed"))
+    );
+    assert!(
+        s.emit.try_action(Duration::from_millis(300)).is_none(),
+        "a refused action never reaches the webview"
+    );
+    ws.send_text(r#"{"t":"query","reqId":"q","q":"gitStatus","tabId":"t1"}"#);
+    let query = s.emit.next_action();
+    assert!(query.query);
+    assert_eq!(query.kind, "gitStatus");
+    s.hub.action_result(
+        &query.req_id,
+        true,
+        None,
+        Some(serde_json::json!({ "files": [] })),
+    );
+    let result = ws.read_json_where(|m| m["t"] == "result");
+    assert_eq!(result["reqId"], "q");
+    assert_eq!(result["data"]["files"], serde_json::json!([]));
+    ws.send_text(r#"{"t":"select","reqId":"s","tabId":"t2"}"#);
+    assert_eq!(s.emit.next_action().kind, "select");
+}
+
+#[test]
+fn scope_is_read_per_request_so_changes_apply_to_open_sockets() {
+    use crate::remote::scope::Scope;
+    let s = test_server("ws-scope-live");
+    let token = s.pair_scoped("Phone", Some(Scope::Control));
+    let mut ws = s.authed_with(&token);
+    let device = s.devices.list().remove(0);
+    ws.send_text(
+        r#"{"t":"action","reqId":"g1","tabId":"t1","kind":"gitReject","args":{"path":"a"}}"#,
+    );
+    let ack = ws.read_json_where(|m| m["t"] == "ack");
+    assert_eq!(ack["error"], "not allowed", "control may not discard files");
+    s.devices.set_scope(&device.id, Scope::Manage).unwrap();
+    s.hub.scope_changed(&device.id, Scope::Manage);
+    assert_eq!(ws.read_json_where(|m| m["t"] == "scope")["scope"], "manage");
+    ws.send_text(
+        r#"{"t":"action","reqId":"g2","tabId":"t1","kind":"gitReject","args":{"path":"a"}}"#,
+    );
+    let forwarded = s.emit.next_action();
+    assert_eq!(forwarded.kind, "gitReject");
+    assert_eq!(forwarded.args.unwrap()["path"], "a");
+    s.devices.set_scope(&device.id, Scope::View).unwrap();
+    ws.send_text(r#"{"t":"action","reqId":"p","tabId":"t1","kind":"abort"}"#);
+    let ack = ws.read_json_where(|m| m["t"] == "ack" && m["reqId"] == "p");
+    assert_eq!(
+        ack["error"], "not allowed",
+        "a lowered scope applies at once"
+    );
+}
+
+#[test]
+fn unknown_kinds_queries_and_malformed_args_are_refused_before_the_webview() {
+    let s = test_server("ws-scope-unknown");
+    let mut ws = s.authed_socket();
+    for (frame, t, error) in [
+        (
+            r#"{"t":"action","reqId":"a","tabId":"t1","kind":"terminalWrite"}"#,
+            "ack",
+            "unknown request",
+        ),
+        (
+            r#"{"t":"action","reqId":"b","tabId":"t1","kind":"select"}"#,
+            "ack",
+            "unknown request",
+        ),
+        (
+            r#"{"t":"query","reqId":"c","q":"readEnv"}"#,
+            "result",
+            "unknown request",
+        ),
+        (
+            r#"{"t":"action","reqId":"d","tabId":"t1","kind":"followUp","args":[1]}"#,
+            "ack",
+            "bad request",
+        ),
+        (
+            r#"{"t":"action","reqId":"e","kind":"abort"}"#,
+            "ack",
+            "bad request",
+        ),
+    ] {
+        ws.send_text(frame);
+        let reply = ws.read_json_where(|m| m["t"] == t);
+        assert_eq!(reply["ok"], false, "{frame}");
+        assert_eq!(reply["error"], error, "{frame}");
+    }
+    assert!(s.emit.try_action(Duration::from_millis(300)).is_none());
+    // A query may name no tab.
+    ws.send_text(r#"{"t":"query","reqId":"f","q":"projects"}"#);
+    let query = s.emit.next_action();
+    assert_eq!(
+        (query.kind.as_str(), query.tab_id.as_str()),
+        ("projects", "")
+    );
+}
+
+#[test]
+fn oversized_results_are_refused_not_sent() {
+    let s = test_server("ws-result-cap");
+    let mut ws = s.authed_socket();
+    ws.send_text(r#"{"t":"query","reqId":"big","q":"toolOutput","tabId":"t1"}"#);
+    let query = s.emit.next_action();
+    let huge = "x".repeat(crate::remote::hub::MAX_RESULT + 1);
+    s.hub
+        .action_result(&query.req_id, true, None, Some(Value::String(huge)));
+    let result = ws.read_json_where(|m| m["t"] == "result");
+    assert_eq!(
+        (result["ok"].as_bool(), result["error"].as_str()),
+        (Some(false), Some("result too large"))
+    );
+    assert!(result.get("data").is_none());
+}
+
+#[test]
+fn uploads_need_control_and_arrive_bound_to_the_device() {
+    use crate::remote::scope::Scope;
+    let s = test_server("ws-upload");
+    let viewer = s.pair_scoped("Viewer", None);
+    let mut view = s.authed_with(&viewer);
+    view.send_text(r#"{"t":"upload-begin","uploadId":"u1","mime":"image/png","size":3}"#);
+    let refused = view.read_json_where(|m| m["t"] == "upload");
+    assert_eq!(refused["error"], "not allowed");
+    let token = s.pair_scoped("Phone", Some(Scope::Control));
+    let mut ws = s.authed_with(&token);
+    let device = s
+        .devices
+        .list()
+        .into_iter()
+        .find(|d| d.name == "Phone")
+        .unwrap();
+    let data = base64::engine::general_purpose::STANDARD.encode(b"png");
+    ws.send_text(r#"{"t":"upload-begin","uploadId":"u1","mime":"image/png","size":3}"#);
+    assert_eq!(ws.read_json_where(|m| m["t"] == "upload")["ok"], true);
+    ws.send_text(&format!(
+        r#"{{"t":"upload-chunk","uploadId":"u1","seq":0,"data":"{data}"}}"#
+    ));
+    assert_eq!(ws.read_json_where(|m| m["t"] == "upload")["ok"], true);
+    ws.send_text(r#"{"t":"upload-end","uploadId":"u1"}"#);
+    let end = ws.read_json_where(|m| m["t"] == "upload");
+    assert_eq!(
+        (end["op"].as_str(), end["ok"].as_bool()),
+        (Some("end"), Some(true))
+    );
+    let transfers = s.hub.transfers();
+    let viewer_id = s
+        .devices
+        .list()
+        .into_iter()
+        .find(|d| d.name == "Viewer")
+        .unwrap()
+        .id;
+    assert!(transfers
+        .take_upload(&viewer_id, "u1", Instant::now())
+        .is_none());
+    let image = transfers
+        .take_upload(&device.id, "u1", Instant::now())
+        .unwrap();
+    assert_eq!(image.data, data);
 }

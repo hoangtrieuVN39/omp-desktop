@@ -4,7 +4,7 @@
 //! bounded channel that its own thread drains, and a connection whose
 //! channel is full is dropped.
 
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -13,10 +13,19 @@ use serde_json::{json, Value};
 mod actions;
 mod connections;
 mod state;
+pub use actions::MAX_RESULT;
 use state::State;
 
+use super::audit::AuditLog;
 use super::devices::{DeviceStore, PushSubscription};
 use super::emit::RemoteEmit;
+use super::scope::Scope;
+use super::transfers::Transfers;
+
+/// The phone protocol version `hello` announces. 2 adds scopes, queries,
+/// uploads and downloads; a phone shows only what `caps` lists.
+pub const PROTOCOL: u32 = 2;
+pub const CAPS: [&str; 4] = ["query", "scope", "upload", "download"];
 
 pub const MAX_PER_DEVICE: usize = 4;
 pub const MAX_TOTAL: usize = 8;
@@ -52,6 +61,9 @@ pub struct Hub {
     devices: Arc<DeviceStore>,
     emit: Arc<dyn RemoteEmit>,
     state: Mutex<State>,
+    transfers: Arc<Transfers>,
+    /// Set once the manager knows its config folder; tests may leave it out.
+    audit: OnceLock<Arc<AuditLog>>,
 }
 
 pub(super) fn push_key_message(key: Option<&str>) -> String {
@@ -64,7 +76,38 @@ impl Hub {
             devices,
             emit,
             state: Mutex::new(State::default()),
+            transfers: Arc::new(Transfers::default()),
+            audit: OnceLock::new(),
         }
+    }
+
+    /// Record phone actions in `log` from now on (set once).
+    pub fn set_audit(&self, log: Arc<AuditLog>) {
+        let _ = self.audit.set(log);
+    }
+
+    pub fn audit(&self) -> Option<&AuditLog> {
+        self.audit.get().map(Arc::as_ref)
+    }
+
+    pub fn transfers(&self) -> Arc<Transfers> {
+        Arc::clone(&self.transfers)
+    }
+
+    /// The device's scope right now; `None` once it is no longer paired.
+    pub fn device_scope(&self, device_id: &str) -> Option<Scope> {
+        self.devices.scope_of(device_id)
+    }
+
+    /// Tell the device's open sockets its new scope.
+    pub fn scope_changed(&self, device_id: &str, scope: Scope) {
+        let text = json!({ "t": "scope", "scope": scope }).to_string();
+        self.with_state(|state| state.send_device(device_id, &text));
+    }
+
+    /// Queue one message for one socket.
+    pub fn send_text(&self, conn: u64, text: String) {
+        self.with_state(|state| state.send(conn, Out::Text(text)));
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {

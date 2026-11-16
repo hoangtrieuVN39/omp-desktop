@@ -144,6 +144,8 @@
   // the phone already saw a failure.
   const ACTION_MAX_AGE_MS = 15000;
   const ACTION_QUEUE_MAX = 16;
+  // Protocol 1 kinds, executed here; everything else is app/remote-ops.js.
+  const LEGACY_KINDS = ["select", "prompt", "steer", "abort", "answer"];
 
   // `getStatus` is the latest remote status: a queued action runs only while
   // the server listens, its device is still paired and connected, and it is
@@ -175,15 +177,36 @@
         throw new Error("tab not available");
       }
     }
+    // Images a phone uploaded for this prompt (remote/transfers.rs), taken
+    // once and only for the device that sent them.
+    async function takeImages(action) {
+      const out = [];
+      for (const uploadId of action.args?.images ?? []) {
+        const image = await bridge.remoteTakeUpload(action.deviceId, uploadId);
+        if (!image) throw new Error("image upload missing");
+        out.push({ type: "image", data: image.data, mimeType: image.mimeType });
+      }
+      return out;
+    }
     async function execute(action, enqueuedAt) {
       const { reqId, tabId, kind } = action;
+      const ops = window.OMP_REMOTE_OPS;
       const guard = () => {
         const reason = refusal(action, enqueuedAt);
         if (reason) throw new Error(reason);
       };
+      let data;
       try {
         guard();
-        await ensureTab(action, enqueuedAt);
+        const legacy = !action.query && LEGACY_KINDS.includes(kind);
+        if (!legacy) {
+          if (!ops) throw new Error("unknown remote action");
+          const invalid = ops.invalidArgs(kind, action.args, action.text);
+          if (invalid) throw new Error(invalid);
+        } else if ((kind === "prompt" || kind === "steer") && ops?.invalidArgs(kind, action.args, action.text)) {
+          throw new Error("invalid text");
+        }
+        if (legacy || !ops.TABLESS.has(kind)) await ensureTab(action, enqueuedAt);
         // The bridge reports the IPC hand-off: `false` or a rejection means omp
         // never got the command.
         const deliver = async call => {
@@ -197,13 +220,17 @@
         };
         switch (kind) {
           case "select": break;
-          case "prompt":
+          case "prompt": {
             if (!nonBlank(action.text)) throw new Error("invalid text");
-            await deliver(() => getSnapshot().isStreaming ? bridge.steer(action.text) : bridge.send(action.text));
+            const images = await takeImages(action);
+            await deliver(() => getSnapshot().isStreaming ? bridge.steer(action.text, images) : bridge.send(action.text, images));
             break;
-          case "steer":
+          }
+          case "steer": {
             if (!nonBlank(action.text)) throw new Error("invalid text");
-            await deliver(() => bridge.steer(action.text)); break;
+            const images = await takeImages(action);
+            await deliver(() => bridge.steer(action.text, images)); break;
+          }
           case "abort": await deliver(() => bridge.abort()); break;
           case "answer": {
             const deadline = Date.now() + 5000;
@@ -223,9 +250,20 @@
             await deliver(() => bridge[call.method](...call.args));
             break;
           }
-          default: throw new Error("unknown remote action");
+          default: {
+            if (typeof bridge.waitForActivation === "function") await bridge.waitForActivation();
+            guard();
+            if (!ops.TABLESS.has(kind) && (activeTab() !== tabId || getSnapshot()?.activeSessionId !== tabId)) {
+              throw new Error("tab not available");
+            }
+            data = await ops.run(kind, action.args, action.text, {
+              bridge, deviceId: action.deviceId, tabId,
+              snapshot: getSnapshot,
+              entry: () => getSnapshot()?.sessions?.find(s => s.id === tabId) ?? null,
+            });
+          }
         }
-        await bridge.remoteActionResult(reqId, true);
+        await (data === undefined ? bridge.remoteActionResult(reqId, true) : bridge.remoteActionResult(reqId, true, null, data));
       } catch (error) {
         await bridge.remoteActionResult(reqId, false, String(error?.message ?? error));
       }
@@ -241,5 +279,5 @@
     };
   }
 
-  window.OMP_REMOTE_VIEW = { tabMeta, buildView, viewsEqual, answerCall, invalidAnswer, makeActionHandler };
+  window.OMP_REMOTE_VIEW = { tabMeta, buildView, viewsEqual, answerCall, invalidAnswer, makeActionHandler, toolOutput };
 })();

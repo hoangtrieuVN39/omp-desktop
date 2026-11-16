@@ -58,6 +58,9 @@ pub(super) fn serve(
         return Outcome::Upgrade(head);
     }
     match (head.method.as_str(), head.path.as_str()) {
+        ("GET", path) if path.starts_with(DOWNLOAD_PREFIX) => {
+            Outcome::Reply(download(context, &head, &path[DOWNLOAD_PREFIX.len()..]))
+        }
         ("GET", path) => Outcome::Reply(static_asset(path)),
         ("POST", "/pair") => {
             // A browser POST from another site carries its own Origin.
@@ -76,6 +79,40 @@ pub(super) fn serve(
             }
         }
         _ => Outcome::Reply(Response::status(405)),
+    }
+}
+
+const DOWNLOAD_PREFIX: &str = "/download/";
+
+/// `GET /download/<id>`: a file the desktop offered to one device, served
+/// once to a request carrying that device's bearer token. The page fetches
+/// it with `Authorization: Bearer <token>`; a plain navigation (no header)
+/// gets 403, and so does a cross-site request.
+fn download(context: &Context, head: &Head, id: &str) -> Response {
+    if head.header("origin").is_some() && !context.allowed.origin_ok(head) {
+        return Response::status(403);
+    }
+    let token = head
+        .header("authorization")
+        .and_then(|value| value.strip_prefix("Bearer "));
+    let Some(device) = token.and_then(|token| context.shared.devices.authenticate(token)) else {
+        return Response::status(403);
+    };
+    match context
+        .shared
+        .transfers
+        .serve(&device.id, id, Instant::now())
+    {
+        Some(served) => Response {
+            status: 200,
+            content_type: "application/octet-stream",
+            body: Cow::Owned(served.bytes),
+            extra: &[
+                ("Content-Disposition", "attachment"),
+                ("Content-Security-Policy", "sandbox"),
+            ],
+        },
+        None => Response::status(404),
     }
 }
 

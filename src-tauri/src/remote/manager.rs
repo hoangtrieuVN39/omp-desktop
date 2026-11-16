@@ -13,6 +13,7 @@ mod status;
 use core::{Core, State};
 use status::HubEmit;
 
+use super::audit::AuditLog;
 use super::bridge::FanOut;
 use super::devices::DeviceStore;
 use super::emit::{RemoteEmit, Status};
@@ -79,6 +80,7 @@ impl RemoteManager {
                 emit: Arc::clone(&emit),
             };
             let hub = Arc::new(Hub::new(Arc::clone(&devices), Arc::new(hub_emit)));
+            hub.set_audit(Arc::new(AuditLog::new(&dir)));
             let pusher = Pusher::new(
                 dir.clone(),
                 Arc::clone(&devices),

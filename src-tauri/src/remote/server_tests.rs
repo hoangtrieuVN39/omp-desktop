@@ -116,6 +116,7 @@ fn test_server_deadline(name: &str, request_deadline: Duration) -> TestServer {
         },
         Shared {
             pairing: Arc::clone(&pairing),
+            transfers: hub.transfers(),
             devices: Arc::clone(&devices),
             is_current: Arc::new(|| true),
             on_paired: Arc::new(|| {}),
@@ -449,6 +450,7 @@ fn the_wildcard_address_is_refused() {
         },
         Shared {
             pairing: Arc::new(Pairing::default()),
+            transfers: Arc::default(),
             devices: Arc::new(DeviceStore::load(dir.join("devices.json"))),
             is_current: Arc::new(|| true),
             on_paired: Arc::new(|| {}),
@@ -673,6 +675,7 @@ fn pair_of_a_replaced_server_is_refused_and_a_pairing_calls_the_hook() {
     let current = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let paired = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let shared = Shared {
+        transfers: Arc::default(),
         pairing: Arc::clone(&pairing),
         devices: Arc::clone(&devices),
         is_current: {
@@ -698,4 +701,56 @@ fn pair_of_a_replaced_server_is_refused_and_a_pairing_calls_the_hook() {
     assert_eq!(pair(&shared, body.as_bytes(), peer).status, 200);
     assert_eq!(devices.list().len(), 1);
     assert_eq!(paired.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_download_needs_its_device_token_and_is_served_once() {
+    let s = test_server("download-route");
+    let code = s.pairing.start(Instant::now()).unwrap();
+    let reply = s.post_pair(&format!(r#"{{"code":"{code}","name":"Phone"}}"#));
+    let body: serde_json::Value = serde_json::from_slice(&reply.body).unwrap();
+    let token = body["token"].as_str().unwrap().to_owned();
+    let device = body["deviceId"].as_str().unwrap().to_owned();
+    let other = {
+        let code = s.pairing.start(Instant::now()).unwrap();
+        let reply = s.post_pair(&format!(r#"{{"code":"{code}","name":"Other"}}"#));
+        let body: serde_json::Value = serde_json::from_slice(&reply.body).unwrap();
+        body["token"].as_str().unwrap().to_owned()
+    };
+    let file = s.dir.join("export.html");
+    std::fs::write(&file, b"<html>session</html>").unwrap();
+    let id = s
+        .hub
+        .transfers()
+        .offer(&device, file, Instant::now())
+        .unwrap();
+    let fetch = |auth: Option<&str>, origin: Option<&str>| {
+        let auth = auth.map_or_else(String::new, |t| format!("Authorization: Bearer {t}\r\n"));
+        let origin = origin.map_or_else(String::new, |o| format!("Origin: {o}\r\n"));
+        s.raw(
+            format!(
+                "GET /download/{id} HTTP/1.1\r\nHost: {host}\r\n{auth}{origin}\r\n",
+                host = s.host()
+            )
+            .as_bytes(),
+        )
+    };
+    assert_eq!(fetch(None, None).status, 403, "a plain navigation");
+    assert_eq!(fetch(Some("bogus"), None).status, 403);
+    assert_eq!(
+        fetch(Some(&other), None).status,
+        404,
+        "another device's offer"
+    );
+    assert_eq!(
+        fetch(Some(&token), Some("https://evil.example")).status,
+        403,
+        "cross-site"
+    );
+    let ok = fetch(Some(&token), Some(&format!("https://{}", s.host())));
+    assert_eq!(ok.status, 200);
+    assert_eq!(ok.body, b"<html>session</html>");
+    assert_eq!(ok.header("content-disposition"), Some("attachment"));
+    assert_eq!(ok.header("content-type"), Some("application/octet-stream"));
+    assert_eq!(fetch(Some(&token), None).status, 404, "single use");
 }

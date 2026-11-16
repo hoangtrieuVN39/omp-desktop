@@ -16,6 +16,7 @@ use super::http::admission::Allowed;
 use super::http::response::write_response;
 use super::http::Head;
 use super::pairing::Pairing;
+use super::transfers::Transfers;
 use routes::{serve, Outcome};
 use transport::InFlight;
 pub use transport::{Conn, DeadlineSock, Slot, Transport};
@@ -35,6 +36,8 @@ pub type UpgradeFn = Arc<dyn Fn(Conn, Head) + Send + Sync>;
 pub struct Shared {
     pub pairing: Arc<Pairing>,
     pub devices: Arc<DeviceStore>,
+    /// Files offered to phones (`GET /download/<id>`).
+    pub transfers: Arc<Transfers>,
     /// False once the server this belongs to was replaced or stopped:
     /// pairing then refuses (503).
     pub is_current: Arc<dyn Fn() -> bool + Send + Sync>,

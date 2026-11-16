@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Remote access, phone permissions: every paired phone has a scope — **View only** (read, notifications), **Control** (also prompt, steer, stop, answer, queue, images, subagents, export) or **Manage** (also open/close/rename tabs, switch profiles, change model and goal, branch/fork, accept/discard files, switch branches, approval rules and modes). Set it under Settings → Remote access → Paired phones; a change applies to open connections at once. A newly paired phone starts at View only; phones paired before this keep what they could do (Control). The desktop checks the scope before a request reaches any tab.
+- Remote access, protocol 2 for the phone page: `hello` announces `proto`, `caps` and the phone's scope; read-only `query` requests answer with data (projects, saved sessions, models, thinking levels, commands, files, a tool card's full output, git status/diff/log/branches, file preview, PR status, subagent transcripts, usage, approval rules and modes, the conversation tree); projects and saved sessions are named by opaque ids, never paths.
+- Remote access, images and downloads: a phone uploads prompt images in chunks (PNG, JPEG, GIF, WebP; at most 8 per message, 1.5 MB each), bound to that phone; an HTML export can be downloaded to the phone once, with its token (`GET /download/<id>`, 5 minutes).
+- Remote access, audit log: every phone action and its outcome is written to `remote-audit.jsonl` in the app config folder (rotated at 512 KB).
+
+### Changed
+
+- This fork updates from `hoangtrieuVN39/omp-desktop` releases, signed with its own key.
+
 ## [0.15.0] - 2026-11-14
 
 ### Added

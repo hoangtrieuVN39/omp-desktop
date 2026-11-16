@@ -75,6 +75,19 @@ impl State {
         }
     }
 
+    /// Send `text` to every open socket of one device.
+    pub(super) fn send_device(&mut self, device_id: &str, text: &str) {
+        let conns: Vec<u64> = self
+            .conns
+            .iter()
+            .filter(|(_, entry)| entry.device_id == device_id)
+            .map(|(conn, _)| *conn)
+            .collect();
+        for conn in conns {
+            self.send(conn, Out::Text(text.to_owned()));
+        }
+    }
+
     pub(super) fn broadcast(&mut self, text: &str) {
         let mut dropped = false;
         self.conns.retain(|_, entry| {

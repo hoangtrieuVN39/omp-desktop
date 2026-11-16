@@ -3,20 +3,28 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::scope::Scope;
 use super::settings::RemoteSettings;
 
-/// A phone request handed to the desktop webview.
+/// A phone request handed to the desktop webview: an action (it changes
+/// something) or, with `query` set, a read whose answer carries data.
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Action {
     pub req_id: String,
     pub device_id: String,
+    /// The tab the request is for; empty for a query that needs no tab.
     pub tab_id: String,
-    /// `select`, `prompt`, `steer`, `abort` or `answer`.
+    /// An action kind or a query name of `scope::ACTIONS` / `scope::QUERIES`.
     pub kind: String,
+    #[serde(default)]
+    pub query: bool,
     pub text: Option<String>,
     pub ask_id: Option<String>,
     pub value: Option<Value>,
+    /// Kind-specific arguments; the webview validates them per kind.
+    #[serde(default)]
+    pub args: Option<Value>,
     #[serde(default)]
     pub dispatched_at: Option<u64>,
 }
@@ -30,6 +38,7 @@ pub struct DeviceStatus {
     pub last_seen: u64,
     pub connected: bool,
     pub push_subscribed: bool,
+    pub scope: Scope,
 }
 
 #[derive(Serialize, Clone, Debug)]

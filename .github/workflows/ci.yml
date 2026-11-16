@@ -5,7 +5,7 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, phone-remote]
     paths:
       - 'src-tauri/**'
       - 'src/**'
@@ -16,7 +16,8 @@ on:
       - '.github/workflows/ci.yml'
       - '.github/workflows/tests.yml'
   pull_request:
-    branches: [main, master]
+    branches: [main, master, phone-remote]
+  workflow_dispatch:
 
 jobs:
   test:

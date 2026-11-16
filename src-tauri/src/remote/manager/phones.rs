@@ -1,15 +1,19 @@
 //! Phone pairing, device management and certificate regeneration for
 //! [`super::RemoteManager`].
 
+use std::path::PathBuf;
 use std::time::Instant;
 
 use super::core::Running;
 use super::{PairStart, RemoteManager};
+use crate::remote::audit::{Entry, MAX_LIST};
 use crate::remote::devices::unix_seconds;
 use crate::remote::emit::Status;
 use crate::remote::pairing::CODE_TTL;
 use crate::remote::qr;
+use crate::remote::scope::Scope;
 use crate::remote::settings::CertSetting;
+use crate::remote::transfers::Image;
 
 impl RemoteManager {
     /// Send a test notification to every subscribed phone.
@@ -41,6 +45,43 @@ impl RemoteManager {
     pub fn device_rename(&self, id: &str, name: &str) -> Result<Status, String> {
         self.core.devices.rename(id, name)?;
         Ok(self.publish_status())
+    }
+
+    /// Change what a paired phone may do; its open sockets learn the new
+    /// scope at once and every later request is checked against it.
+    pub fn device_set_scope(&self, id: &str, scope: &str) -> Result<Status, String> {
+        let scope = Scope::parse(scope).ok_or("unknown scope")?;
+        self.core.devices.set_scope(id, scope)?;
+        self.core.hub.scope_changed(id, scope);
+        Ok(self.publish_status())
+    }
+
+    /// The newest phone actions, newest first.
+    pub fn audit_list(&self, limit: usize) -> Vec<Entry> {
+        self.core
+            .hub
+            .audit()
+            .map_or_else(Vec::new, |log| log.recent(limit.min(MAX_LIST)))
+    }
+
+    /// A finished image upload of `device_id`, for that device's prompt.
+    pub fn take_upload(&self, device_id: &str, upload_id: &str) -> Option<Image> {
+        self.core
+            .hub
+            .transfers()
+            .take_upload(device_id, upload_id, Instant::now())
+    }
+
+    /// Offer the file at `path` (an HTML export omp just wrote) to one
+    /// paired device; the phone fetches it with `GET /download/<id>`.
+    pub fn offer_download(&self, device_id: &str, path: PathBuf) -> Result<String, String> {
+        if self.core.devices.scope_of(device_id).is_none() {
+            return Err("remote device not found".to_owned());
+        }
+        self.core
+            .hub
+            .transfers()
+            .offer(device_id, path, Instant::now())
     }
 
     pub fn device_revoke(&self, id: &str) -> Result<Status, String> {

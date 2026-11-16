@@ -105,6 +105,7 @@ impl Core {
             },
             Shared {
                 pairing: Arc::clone(&self.pairing),
+                transfers: self.hub.transfers(),
                 devices: Arc::clone(&self.devices),
                 is_current: {
                     let hub = Arc::clone(&self.hub);

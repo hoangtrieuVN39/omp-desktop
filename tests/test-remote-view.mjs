@@ -349,7 +349,7 @@ test("remote bridge invokes exact commands and camelCase arguments without loggi
     ["remotePushTest", [], "remote_push_test", null],
     ["remoteDefaultContact", [], "remote_default_contact", null],
     ["remotePublish", [{ tabs: [], view: { tabId: "a" } }], "remote_publish", { payload: { tabs: [], view: { tabId: "a" } } }],
-    ["remoteActionResult", ["req", false, "refused"], "remote_action_result", { reqId: "req", ok: false, error: "refused" }],
+    ["remoteActionResult", ["req", false, "refused"], "remote_action_result", { reqId: "req", ok: false, error: "refused", data: null }],
     ["remoteReady", [true], "remote_ready", { ready: true }],
   ];
   for (const [method, args, command, payload] of cases) {

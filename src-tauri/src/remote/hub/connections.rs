@@ -7,8 +7,8 @@ use serde_json::json;
 
 use super::state::Entry;
 use super::{
-    push_key_message, Hub, Out, CLOSE_NOT_READY, CLOSE_TOO_MANY, CLOSE_UNAUTHORIZED,
-    MAX_PER_DEVICE, MAX_TOTAL,
+    push_key_message, Hub, Out, CAPS, CLOSE_NOT_READY, CLOSE_TOO_MANY, CLOSE_UNAUTHORIZED,
+    MAX_PER_DEVICE, MAX_TOTAL, PROTOCOL,
 };
 use crate::remote::devices::Device;
 
@@ -53,7 +53,10 @@ impl Hub {
                 },
             );
             // Serialise everything from `state` first: `send` needs it mutably.
-            let hello = json!({ "t": "hello", "deviceId": device.id, "name": device.name });
+            let hello = json!({
+                "t": "hello", "deviceId": device.id, "name": device.name,
+                "proto": PROTOCOL, "caps": CAPS, "scope": device.scope,
+            });
             let key = state
                 .push_key
                 .as_deref()
