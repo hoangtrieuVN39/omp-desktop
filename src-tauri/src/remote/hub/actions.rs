@@ -8,12 +8,9 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 
-use super::{Hub, Out, ACTION_TIMEOUT, MAX_PENDING_PER_CONN};
+use super::{Hub, Out, ACTION_TIMEOUT, MAX_PENDING_PER_CONN, MAX_RESULT};
 use crate::remote::audit::Entry;
 use crate::remote::emit::Action;
-
-/// Largest answer a request may carry, as serialised JSON.
-pub const MAX_RESULT: usize = 512 * 1024;
 
 pub(super) struct Pending {
     pub conn: u64,
@@ -206,8 +203,7 @@ impl Hub {
             .list()
             .into_iter()
             .find(|device| device.id == entry.device_id)
-            .map(|device| device.name)
-            .unwrap_or_default();
+            .map_or_default(|device| device.name);
         log.record(&entry);
     }
 }

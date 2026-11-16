@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 mod actions;
 mod connections;
 mod state;
-pub use actions::MAX_RESULT;
+
 use state::State;
 
 use super::audit::AuditLog;
@@ -32,6 +32,8 @@ pub const MAX_TOTAL: usize = 8;
 pub const MAX_PUSH_PER_DEVICE: usize = 4;
 pub const MAX_PENDING_PER_CONN: usize = 16;
 pub const ACTION_TIMEOUT: Duration = Duration::from_secs(15);
+/// Largest answer a request may carry, as serialised JSON.
+pub const MAX_RESULT: usize = 512 * 1024;
 /// Application close codes.
 pub const CLOSE_UNAUTHORIZED: u16 = 4401;
 pub const CLOSE_TOO_MANY: u16 = 4429;

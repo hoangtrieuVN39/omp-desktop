@@ -329,7 +329,8 @@ fn bad_actions_are_refused_without_reaching_the_webview() {
     ws.send_text(r#"{"t":"action","reqId":"b1","tabId":"t1","kind":"rm-rf"}"#);
     assert_eq!(
         ws.read_json_where(|m| m["t"] == "ack")["error"],
-        "bad request"
+        crate::remote::scope::UNKNOWN_REQUEST,
+        "an unknown kind is refused by the scope table"
     );
     let big = "x".repeat(32 * 1024 + 1);
     ws.send_text(&format!(

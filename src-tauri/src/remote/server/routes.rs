@@ -106,7 +106,7 @@ fn download(context: &Context, head: &Head, id: &str) -> Response {
         Some(served) => Response {
             status: 200,
             content_type: "application/octet-stream",
-            body: Cow::Owned(served.bytes),
+            body: Cow::Owned(served),
             extra: &[
                 ("Content-Disposition", "attachment"),
                 ("Content-Security-Policy", "sandbox"),

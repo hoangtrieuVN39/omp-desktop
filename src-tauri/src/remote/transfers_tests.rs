@@ -1,5 +1,4 @@
 use super::*;
-use base64::Engine as _;
 
 fn b64(bytes: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(bytes)
@@ -109,18 +108,14 @@ fn uploads_are_capped_per_device_and_expire() {
 #[test]
 fn a_download_is_served_once_to_its_device_only() {
     let dir = crate::test_support::tempdir("remote-transfers", "download");
-    let path = dir.join("session \"x\".html");
+    let path = dir.join("session.html");
     std::fs::write(&path, b"<html>hi</html>").unwrap();
     let t = Transfers::default();
     let now = Instant::now();
     let id = t.offer("dev", path, now).unwrap();
     assert!(t.serve("other", &id, now).is_none(), "another device");
     let served = t.serve("dev", &id, now).unwrap();
-    assert_eq!(served.bytes, b"<html>hi</html>");
-    assert_eq!(
-        served.name, "session x.html",
-        "header-unsafe characters dropped"
-    );
+    assert_eq!(served, b"<html>hi</html>");
     assert!(t.serve("dev", &id, now).is_none(), "single use");
     std::fs::remove_dir_all(dir).unwrap();
 }
