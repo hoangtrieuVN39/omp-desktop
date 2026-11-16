@@ -322,29 +322,38 @@ fn host_name_is_accepted_with_port_and_default_ports_may_omit_it() {
 #[test]
 fn static_assets_are_served_with_csp_and_no_store() {
     let s = test_server("assets");
-    let cases = [
-        ("/", "text/html; charset=utf-8"),
-        ("/index.html", "text/html; charset=utf-8"),
-        ("/remote.js", "text/javascript; charset=utf-8"),
-        ("/client.js", "text/javascript; charset=utf-8"),
-        ("/scanner.js", "text/javascript; charset=utf-8"),
-        ("/sessions.js", "text/javascript; charset=utf-8"),
-        ("/transcript.js", "text/javascript; charset=utf-8"),
-        ("/jsQR.js", "text/javascript; charset=utf-8"),
-        ("/sw.js", "text/javascript; charset=utf-8"),
-        ("/remote.css", "text/css; charset=utf-8"),
-        ("/styles.css", "text/css; charset=utf-8"),
-        ("/chat.css", "text/css; charset=utf-8"),
-        ("/ask.css", "text/css; charset=utf-8"),
-        ("/composer.css", "text/css; charset=utf-8"),
-        ("/accent.js", "text/javascript; charset=utf-8"),
-        ("/scroll-pin.js", "text/javascript; charset=utf-8"),
-        ("/manifest.json", "application/manifest+json"),
-        ("/marked.min.js", "text/javascript; charset=utf-8"),
-        ("/highlight.min.js", "text/javascript; charset=utf-8"),
-        ("/marked-setup.js", "text/javascript; charset=utf-8"),
+    // Every file the page itself references, plus the files it does not (service
+    // worker, QR decoder, manifest), so a new screen cannot ship unserved.
+    let page = include_str!("../../../src/remote/index.html");
+    let mut cases: Vec<(String, &str)> = vec![
+        ("/".into(), "text/html; charset=utf-8"),
+        ("/index.html".into(), "text/html; charset=utf-8"),
+        ("/jsQR.js".into(), "text/javascript; charset=utf-8"),
+        ("/sw.js".into(), "text/javascript; charset=utf-8"),
+        ("/manifest.json".into(), "application/manifest+json"),
     ];
+    for attr in ["src=\"", "href=\""] {
+        for part in page.split(attr).skip(1) {
+            let path = part.split('"').next().unwrap_or_default();
+            if let Some(name) = path.strip_prefix('/').filter(|n| !n.is_empty()) {
+                let content_type = if name.ends_with(".css") {
+                    "text/css; charset=utf-8"
+                } else if name.ends_with(".js") {
+                    "text/javascript; charset=utf-8"
+                } else {
+                    continue;
+                };
+                cases.push((path.to_string(), content_type));
+            }
+        }
+    }
+    assert!(
+        cases.len() > 60,
+        "the page references its screens: {}",
+        cases.len()
+    );
     for (path, content_type) in cases {
+        let path = path.as_str();
         let reply = s.get(path, &s.host());
         assert_eq!(reply.status, 200, "{path}");
         assert_eq!(reply.header("content-type"), Some(content_type), "{path}");
