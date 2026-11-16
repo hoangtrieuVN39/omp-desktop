@@ -110,7 +110,7 @@
   const prIsStale = value => Boolean(value && typeof value === "object" && value.stale === true);
 
   function prCard(snapshot) {
-    if (!snapshot || typeof snapshot !== "object" || prIsStale(snapshot)) return null;
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot) || !Number.isFinite(snapshot.number) || prIsStale(snapshot)) return null;
     const checks = Array.isArray(snapshot.checks) ? snapshot.checks : [];
     const sorted = checks.map((check, index) => ({ check, index }))
       .sort((a, b) => (CHECK_ORDER[a.check.state] ?? 9) - (CHECK_ORDER[b.check.state] ?? 9) || a.index - b.index)

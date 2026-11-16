@@ -159,3 +159,9 @@ test("empty copy names the branch", () => {
   assert.equal(R.clean("main"), "No changes. Working tree is clean on main.");
   assert.equal(R.clean(""), "No changes. Working tree is clean.");
 });
+
+test("prCard ignores anything that is not a pull request snapshot", async () => {
+  const R = (await import("node:module")).createRequire(import.meta.url)("../src/remote/review-model.js");
+  for (const value of [null, undefined, [], {}, { title: "no number" }, { stale: true }, "x"]) assert.equal(R.prCard(value), null, JSON.stringify(value));
+  assert.equal(R.prCard({ number: 142, title: "Remote v2", checks: [] }).number, 142);
+});
