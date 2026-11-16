@@ -25,7 +25,7 @@ use super::transfers::Transfers;
 /// The phone protocol version `hello` announces. 2 adds scopes, queries,
 /// uploads and downloads; a phone shows only what `caps` lists.
 pub const PROTOCOL: u32 = 2;
-pub const CAPS: [&str; 4] = ["query", "scope", "upload", "download"];
+pub const CAPS: [&str; 5] = ["query", "scope", "upload", "download", "approvalGrant"];
 
 pub const MAX_PER_DEVICE: usize = 4;
 pub const MAX_TOTAL: usize = 8;

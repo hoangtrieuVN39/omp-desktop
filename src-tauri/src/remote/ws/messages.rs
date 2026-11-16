@@ -8,7 +8,7 @@ use super::Authed;
 use crate::remote::emit::Action;
 use crate::remote::hub::Hub;
 use crate::remote::push_subs::parse_subscription;
-use crate::remote::scope::{self, action_scope, query_scope};
+use crate::remote::scope::{self, action_scope, query_scope, Scope};
 
 /// Limit for an action's `text`, and for its `value` and `args` as JSON.
 const MAX_TEXT: usize = 32 * 1024;
@@ -40,6 +40,12 @@ pub(super) fn handle(hub: &Hub, session: &Authed, text: &str) {
             } else {
                 // `select` has its own frame; it is not an action kind here.
                 action_scope(&name).filter(|_| name != "select")
+            };
+            // Answering with a remembered approval saves a standing rule: that is Manage.
+            let needed = if name == "answer" && message.pointer("/args/grant").is_some() {
+                Some(Scope::Manage)
+            } else {
+                needed
             };
             if let Err(error) = scope::check(hub.device_scope(&session.device.id), needed) {
                 reject(hub, session, &req_id, error, query);

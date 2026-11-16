@@ -117,6 +117,41 @@
     };
   }
 
+  /** The transcript row a phone-side message id names (the ids buildView publishes). */
+  function messageById(snapshot, id) {
+    const list = snapshot?.messages ?? [];
+    for (const [index, m] of list.entries()) {
+      const kind = m.kind ?? m.role;
+      if ((m.id ?? m._toolCallId ?? `${kind}:${m.ts ?? index}`) === id) return m;
+    }
+    return null;
+  }
+
+  /** The persisted session entry id of message `id`, for branch / fork. The
+   *  transcript rows carry omp's message timestamp (`ts`), the conversation tree
+   *  carries it per entry: that pairing is how a phone message id becomes the
+   *  entry omp knows. Never guesses: no timestamp or no match means no branch. */
+  async function resolveEntry(ctx, id) {
+    const message = messageById(ctx.snapshot(), id);
+    const entry = ctx.entry();
+    if (!entry?.sessionFile) throw new Error("this tab has no saved conversation yet");
+    const tree = unwrap(await ctx.bridge.conversationTree(entry.sessionFile, entry.profile ?? "default"));
+    ctx.check?.();
+    const entries = Array.isArray(tree?.entries) ? tree.entries : [];
+    if (!message) {
+      const direct = entries.find(e => e.id === id && e.inCurrent && (e.kind === "user" || e.kind === "assistant"));
+      if (direct) return direct.id;
+      throw new Error("unknown message");
+    }
+    const kind = message.kind ?? message.role;
+    if (typeof message.ts !== "number") throw new Error("this message can’t be branched yet");
+    const hits = entries.filter(e => e.kind === kind && e.inCurrent && Number(e.ts) === message.ts);
+    const exact = hits.filter(e => typeof e.text !== "string" || typeof message.text !== "string" || e.text === message.text);
+    const pick = (exact.length ? exact : hits)[0];
+    if (!pick) throw new Error("this message isn’t in the saved conversation yet");
+    return pick.id;
+  }
+
   /** Saved sessions without their file paths, keyed by opaque id. */
   function savedView(list) {
     return (list ?? []).slice(0, MAX_SAVED).map(s => ({
@@ -219,8 +254,17 @@
       case "closeTab": return truthy(bridge.closeSession(ctx.tabId), "tab could not be closed");
       case "renameTab": await bridge.renameSession(ctx.tabId, a.title); return undefined;
       case "switchProfile": unwrap(await bridge.switchSessionProfile(ctx.tabId, a.profileId)); return undefined;
-      case "branchAt": return { text: unwrap(await bridge.branchAt(a.entryId))?.text ?? "" };
-      case "forkAt": unwrap(await bridge.forkAt(a.entryId)); return undefined;
+      case "branchAt": {
+        const entryId = await resolveEntry(ctx, a.entryId);
+        check();
+        return { text: unwrap(await bridge.branchAt(entryId))?.text ?? "" };
+      }
+      case "forkAt": {
+        const entryId = await resolveEntry(ctx, a.entryId);
+        check();
+        unwrap(await bridge.forkAt(entryId));
+        return undefined;
+      }
       case "gitAccept": await bridge.workspaceAccept(a.path); return undefined;
       case "gitReject": await bridge.workspaceReject(a.path); return undefined;
       case "gitSwitchBranch": {

@@ -4267,15 +4267,17 @@
      *  of the tab is still the one shown (the bubble lives in its state). */
     async approveAndRemember(prompt, scope) {
       const sessionId = prompt?.sessionId;
-      if (!sessionId || sessionId !== activeSessionId || !prompt.id) return;
-      if (!_settleAsk(prompt.id, { answered: true, answer: "Approve" })) return;
+      if (!sessionId || sessionId !== activeSessionId || !prompt.id) return false;
+      if (!_settleAsk(prompt.id, { answered: true, answer: "Approve" })) return false;
       const gen = _switchGen;
       const res = await _invokeResult("approval_approve_and_grant", { sessionId, requestId: prompt.id, scope });
       const unsaved = res.ok ? res.value : null;
-      if (res.ok && !unsaved) return;
+      // Resolves to whether the prompt was approved *and* the rule saved
+      // (the phone's remembered approval acks on it).
+      if (res.ok && !unsaved) return true;
       if (_switchGen !== gen || activeSessionId !== sessionId) {
         console.warn(`[live] approve and remember for '${sessionId}':`, res.ok ? unsaved : res.error);
-        return;
+        return false;
       }
       if (!res.ok) {
         _reopenAsk(prompt.id);
@@ -4284,6 +4286,7 @@
         _pushAssistantNote(`**Approved, but the rule was not saved:** ${unsaved}`);
       }
       notify();
+      return false;
     },
 
     /** Revoke a previously granted rule. No-op if it wasn't granted. */

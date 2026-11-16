@@ -772,3 +772,25 @@ test("the server row offers no plain HTTP, even for settings that still carry al
   assert.match(text, /Enable remote access/, "control: the row rendered");
   assert.doesNotMatch(text, /plain http|allowHttp|unencrypted/i);
 });
+
+test("buildView publishes the bounded queue, goal, plan and subagents the phone screens read", () => {
+  const { api } = load();
+  const view = api.buildView(snapshot({
+    queue: { steering: ["use fake timers"], followUp: ["then update the docs", "  "] },
+    goal: { known: true, goal: { id: "g", objective: "ship it", status: "active", tokenBudget: 5000, tokensUsed: 1200, secret: "x" } },
+    kanban: [{ title: "Phase 1", tasks: [{ text: "write tests", status: "done" }, { text: "refactor", status: "in-progress" }, { text: "docs", status: "weird" }] }],
+    subagents: { order: ["a", "b"], byId: {
+      a: { id: "a", index: 0, agent: "explore", status: "running", assignment: "look around", parentToolCallId: "c1", startedAt: 5, progress: { tokens: 1200, cost: 0.02, toolCount: 3, currentTool: "grep", lastIntent: "searching", recentOutput: ["huge"] } },
+      b: { id: "b", agent: "review", status: "completed", progress: { durationMs: 4000 } },
+    } },
+  }));
+  assert.deepEqual(own(view.queue), [{ text: "use fake timers", queue: "steering" }, { text: "then update the docs", queue: "followUp" }]);
+  assert.deepEqual(own(view.goal), { id: "g", objective: "ship it", status: "active", tokenBudget: 5000, tokensUsed: 1200 });
+  assert.deepEqual(own(view.todos), [{ name: "Phase 1", tasks: [{ content: "write tests", status: "completed" }, { content: "refactor", status: "in_progress" }, { content: "docs", status: "pending" }] }]);
+  assert.equal(view.subagents.length, 2);
+  assert.deepEqual(own(view.subagents[0]).tokens, 1200);
+  assert.equal(JSON.stringify(view).includes("recentOutput"), false, "agent stream output stays on the desktop");
+  assert.equal(JSON.stringify(view).includes("secret"), false);
+  const plain = api.buildView(snapshot());
+  for (const key of ["queue", "goal", "todos", "subagents"]) assert.equal(key in plain, false, `${key} is omitted when empty`);
+});

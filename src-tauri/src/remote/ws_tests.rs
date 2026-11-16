@@ -791,7 +791,10 @@ fn hello_announces_protocol_caps_and_scope() {
         .iter()
         .filter_map(Value::as_str)
         .collect();
-    assert_eq!(caps, ["query", "scope", "upload", "download"]);
+    assert_eq!(
+        caps,
+        ["query", "scope", "upload", "download", "approvalGrant"]
+    );
 }
 
 #[test]
@@ -968,4 +971,29 @@ fn uploads_need_control_and_arrive_bound_to_the_device() {
         .take_upload(&device.id, "u1", Instant::now())
         .unwrap();
     assert_eq!(image.data, data);
+}
+
+#[test]
+fn a_remembered_approval_needs_manage_but_a_plain_answer_needs_control() {
+    use crate::remote::scope::Scope;
+    let s = test_server("ws-grant-scope");
+    let token = s.pair_scoped("Phone", Some(Scope::Control));
+    let mut ws = s.authed_with(&token);
+    ws.send_text(r#"{"t":"action","reqId":"g","tabId":"t1","kind":"answer","askId":"q","value":"Approve","args":{"grant":"project"}}"#);
+    let ack = ws.read_json_where(|m| m["t"] == "ack");
+    assert_eq!(ack["error"], "not allowed", "Control may not save a rule");
+    assert!(s.emit.try_action(Duration::from_millis(300)).is_none());
+    ws.send_text(
+        r#"{"t":"action","reqId":"p","tabId":"t1","kind":"answer","askId":"q","value":"Approve"}"#,
+    );
+    assert_eq!(
+        s.emit.next_action().kind,
+        "answer",
+        "a plain approval stays Control"
+    );
+    let device = s.devices.list().remove(0);
+    s.devices.set_scope(&device.id, Scope::Manage).unwrap();
+    ws.send_text(r#"{"t":"action","reqId":"g2","tabId":"t1","kind":"answer","askId":"q","value":"Approve","args":{"grant":"session"}}"#);
+    let forwarded = s.emit.next_action();
+    assert_eq!(forwarded.args.unwrap()["grant"], "session");
 }

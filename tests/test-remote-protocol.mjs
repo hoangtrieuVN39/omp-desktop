@@ -37,7 +37,7 @@ function harness(options = {}) {
       encode: options.encode,
     }),
     hello(extra = {}) {
-      h.proto.handleFrame({ t: "hello", deviceId: "d", name: "Phone", proto: 2, caps: ["query", "scope", "upload", "download"], scope: "manage", ...extra });
+      h.proto.handleFrame({ t: "hello", deviceId: "d", name: "Phone", proto: 2, caps: ["query", "scope", "upload", "download", "approvalGrant"], scope: "manage", ...extra });
     },
     last: () => sent[sent.length - 1],
   };

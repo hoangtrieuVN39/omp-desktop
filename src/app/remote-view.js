@@ -83,7 +83,65 @@
         } } : {}),
       });
     }
-    return { tabId: snapshot.activeSessionId, busy: Boolean(snapshot.isStreaming), messages: messages.slice(-maxMessages), asks };
+    return {
+      tabId: snapshot.activeSessionId, busy: Boolean(snapshot.isStreaming), messages: messages.slice(-maxMessages), asks,
+      ...extras(snapshot),
+    };
+  }
+
+  // ── bounded extras the phone screens read (queue strip, goal, plan, agents) ──
+  const finite = v => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+  const text = (v, max) => (typeof v === "string" ? clip(v, max) : undefined);
+  const MAX_QUEUE = 20, MAX_TODOS = 60, MAX_AGENTS = 40;
+  const STATUS_BACK = { review: "pending", pending: "pending", "in-progress": "in_progress", active: "in_progress", done: "completed", completed: "completed", abandoned: "abandoned" };
+
+  function publicQueue(queue) {
+    const out = [];
+    for (const [key, list] of [["steering", queue?.steering], ["followUp", queue?.followUp]]) {
+      for (const item of Array.isArray(list) ? list : []) if (typeof item === "string" && item.trim()) out.push({ text: clip(item, 2000), queue: key });
+    }
+    return out.slice(0, MAX_QUEUE);
+  }
+  function publicGoal(goal) {
+    const g = goal?.goal;
+    if (!g || typeof g.objective !== "string") return undefined;
+    return { id: text(g.id, 128), objective: clip(g.objective, 2000), status: text(g.status, 32), tokenBudget: finite(g.tokenBudget) ?? null, tokensUsed: finite(g.tokensUsed) ?? 0 };
+  }
+  // The desktop keeps the plan as design columns (adapter.buildKanban); the phone reads omp's todo phases.
+  function publicTodos(kanban) {
+    if (!Array.isArray(kanban)) return undefined;
+    const phases = kanban.slice(0, 20).map(col => ({
+      name: text(col?.title, 120) ?? "",
+      tasks: (Array.isArray(col?.tasks) ? col.tasks : []).slice(0, MAX_TODOS).map(t => ({ content: text(t?.text, 400) ?? "", status: STATUS_BACK[t?.status] ?? "pending" })),
+    })).filter(phase => phase.tasks.length);
+    return phases.length ? phases : undefined;
+  }
+  function publicSubagents(subagents) {
+    const ids = Array.isArray(subagents?.order) ? subagents.order : [];
+    const rows = ids.map(id => subagents.byId?.[id]).filter(Boolean).slice(-MAX_AGENTS).map(a => {
+      const pr = a.progress ?? {};
+      return {
+        id: text(a.id, 200), index: finite(a.index), agent: text(a.agent, 80), description: text(a.description ?? pr.description, 300),
+        status: text(a.status, 24), assignment: text(a.assignment ?? a.task, 1500), parentToolCallId: text(a.parentToolCallId, 128),
+        startedAt: finite(a.startedAt), endedAt: finite(a.endedAt),
+        tokens: finite(pr.tokens), cost: finite(pr.cost), durationMs: finite(pr.durationMs), toolCount: finite(pr.toolCount), requests: finite(pr.requests),
+        currentTool: text(pr.currentTool, 80), currentToolArgs: text(typeof pr.currentToolArgs === "string" ? pr.currentToolArgs : "", 300),
+        lastIntent: text(pr.lastIntent, 300), contextTokens: finite(pr.contextTokens), contextWindow: finite(pr.contextWindow),
+      };
+    });
+    return rows.length ? rows : undefined;
+  }
+  function extras(snapshot) {
+    const out = {};
+    const queue = publicQueue(snapshot.queue);
+    if (queue.length) out.queue = queue;
+    const goal = publicGoal(snapshot.goal);
+    if (goal) out.goal = goal;
+    const todos = publicTodos(snapshot.kanban);
+    if (todos) out.todos = todos;
+    const subagents = publicSubagents(snapshot.subagents);
+    if (subagents) out.subagents = subagents;
+    return out;
   }
 
   // Data-only structural equality; key order does not change a phone view.
@@ -246,6 +304,15 @@
             if (!ask) throw new Error("question no longer open");
             const invalid = invalidAnswer(ask, action.value);
             if (invalid) throw new Error(invalid);
+            const grant = action.args?.grant;
+            if (grant !== undefined) {
+              // "Allow for this session / Always allow in this project": the same Approve
+              // answer plus a saved rule, through the desktop's own approve-and-grant path.
+              const prompt = (getSnapshot().messages ?? []).find(m => askCard(m)?.id === action.askId);
+              if (!["session", "project"].includes(grant) || action.value !== "Approve" || !prompt) throw new Error("invalid answer");
+              await deliver(() => bridge.approveAndRemember(prompt, grant));
+              break;
+            }
             const call = answerCall(ask, action.value);
             await deliver(() => bridge[call.method](...call.args));
             break;

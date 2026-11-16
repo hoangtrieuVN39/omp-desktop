@@ -61,13 +61,16 @@
       card.append(choices);
       const caps = ctx.proto?.state?.().caps;
       for (const [choice, label] of [["session", "Allow for this session"], ["project", `Always allow in ${project}`]]) {
-        const allowed = A.canGrant(info, caps);
+        // Saving a standing rule is a Manage action; the desktop must also say it can.
+        const supported = A.canGrant(info, caps), scoped = ctx.gate("approvalRevoke").ok;
+        const allowed = supported && scoped;
         const opt = action(label, () => {
-          if (!allowed) { ctx.ui.toast({ tone: "lock", text: root.OMP_REMOTE_CHAT.COPY.noGrant }); return; }
+          if (!supported) { ctx.ui.toast({ tone: "lock", text: root.OMP_REMOTE_CHAT.COPY.noGrant }); return; }
+          if (!scoped) { ctx.lockToast(ctx.gate("approvalRevoke"), "Remember this approval"); return; }
           const req = A.approvalAnswer(choice);
           answer(ask, req.value, req.args, choice);
         }, "r-ask-grant");
-        if (!allowed) { opt.setAttribute("aria-disabled", "true"); opt.append(ctx.P.lockChip("On desktop")); }
+        if (!allowed) { opt.setAttribute("aria-disabled", "true"); opt.append(ctx.P.lockChip(supported ? "Needs Manage" : "On desktop")); }
         card.append(opt);
       }
       return card;

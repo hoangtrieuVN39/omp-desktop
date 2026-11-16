@@ -210,3 +210,31 @@ test("a desktop tab switch while an op awaits stops its side effect", async () =
   assert.deepEqual(calls, [], "no thinking change on tab B");
   assert.deepEqual(results.at(-1), ["k1", false, "tab not available"]);
 });
+
+test("branch and fork resolve the persisted entry by message timestamp and never guess", async () => {
+  const { ops } = load();
+  const calls = [];
+  const tree = { entries: [
+    { id: "e-user", kind: "user", ts: 1000, text: "fix it", inCurrent: true },
+    { id: "e-old", kind: "user", ts: 1000, text: "other file", inCurrent: false },
+    { id: "e-asst", kind: "assistant", ts: 2000, text: "done", inCurrent: true },
+  ] };
+  const bridge = {
+    conversationTree: async () => ({ ok: true, value: tree }),
+    branchAt: async id => { calls.push(["branch", id]); return { ok: true, text: "fix it" }; },
+    forkAt: async id => { calls.push(["fork", id]); return { ok: true }; },
+  };
+  const s = snap({ messages: [
+    { kind: "user", id: "user:1000", ts: 1000, text: "fix it" },
+    { kind: "assistant", id: "assistant:2000", ts: 2000, text: "done" },
+    { kind: "user", text: "no timestamp yet" },
+  ] });
+  const ctx = { bridge, deviceId: "d", tabId: "t1", snapshot: () => s, entry: () => s.sessions[0] };
+  assert.deepEqual(own(await ops.run("branchAt", { entryId: "user:1000" }, null, ctx)), { text: "fix it" });
+  await ops.run("forkAt", { entryId: "assistant:2000" }, null, ctx);
+  assert.deepEqual(calls, [["branch", "e-user"], ["fork", "e-asst"]], "the entry of the current file, not the same-ts one of another");
+  await assert.rejects(ops.run("branchAt", { entryId: "user:7" }, null, ctx), /unknown message/);
+  await assert.rejects(ops.run("branchAt", { entryId: "user:2" }, null, ctx), /can’t be branched yet/);
+  assert.equal(calls.length, 2, "an unresolved message never reaches omp");
+  assert.deepEqual(own(await ops.run("branchAt", { entryId: "e-user" }, null, ctx)), { text: "fix it" }, "a real entry id of the current file is accepted as is");
+});
