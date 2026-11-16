@@ -98,22 +98,22 @@ fn download(context: &Context, head: &Head, id: &str) -> Response {
     let Some(device) = token.and_then(|token| context.shared.devices.authenticate(token)) else {
         return Response::status(403);
     };
-    match context
+    context
         .shared
         .transfers
         .serve(&device.id, id, Instant::now())
-    {
-        Some(served) => Response {
-            status: 200,
-            content_type: "application/octet-stream",
-            body: Cow::Owned(served),
-            extra: &[
-                ("Content-Disposition", "attachment"),
-                ("Content-Security-Policy", "sandbox"),
-            ],
-        },
-        None => Response::status(404),
-    }
+        .map_or_else(
+            || Response::status(404),
+            |bytes| Response {
+                status: 200,
+                content_type: "application/octet-stream",
+                body: Cow::Owned(bytes),
+                extra: &[
+                    ("Content-Disposition", "attachment"),
+                    ("Content-Security-Policy", "sandbox"),
+                ],
+            },
+        )
 }
 
 fn static_asset(path: &str) -> Response {
