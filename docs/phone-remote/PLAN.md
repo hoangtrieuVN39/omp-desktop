@@ -1,7 +1,21 @@
 # Plan: Fork OMP Desktop — Remote điện thoại đầy đủ tính năng
 
-> Trạng thái: **đã duyệt phạm vi**, chưa bắt đầu triển khai.
-> Cập nhật: 2026-11-16. Tài liệu liên quan: [`DESIGN-HANDOFF.md`](DESIGN-HANDOFF.md).
+> Trạng thái: **Giai đoạn 0–1 xong phần không cần thiết kế**; Giai đoạn 2+ chờ thiết kế (handoff đã giao).
+> Cập nhật: 2026-11-16. Tài liệu liên quan: [`DESIGN-HANDOFF.md`](DESIGN-HANDOFF.md), [`SPIKE-background-tabs.md`](SPIKE-background-tabs.md).
+
+## Tiến độ
+
+| Hạng mục | Trạng thái |
+|---|---|
+| Toolchain | rustup stable+nightly ở `D:\dev`. **MSVC chưa cài được: ổ C: còn ~0.7 GB, VS Installer cần ≥ 2.7 GB trên C:** → build/test Rust chạy trên GitHub Actions (`CI`, `Clippy`) |
+| Fork | `hoangtrieuVN39/omp-desktop`, nhánh `phone-remote`, upstream = `apoc/omp-desktop` |
+| Updater riêng | pubkey + endpoint của fork; key ở `D:\dev\keys\` + GitHub secret `TAURI_SIGNING_PRIVATE_KEY`; version `0.15.0-1` |
+| Giao thức v2 (Rust) | scope `view/control/manage` (kiểm tra trước webview), `query`/`result` có `data` ≤ 512 KiB, upload ảnh theo chunk, download export 1 lần, audit log, lệnh Settings đổi scope |
+| Giao thức v2 (webview) | `app/remote-ops.js`: kiểm tra lại tham số + map toàn bộ action/query lên `OMP_BRIDGE`, id mờ thay cho path |
+| Giao thức v2 (phone) | `src/remote/protocol.js` (`OMP_REMOTE_PROTO`): request/ack, scope gating, upload, download — đã nối vào socket, **chưa có UI** |
+| Test | `test-remote-ops`, `test-remote-protocol`, Rust ws/server/transfers/audit/scope tests; CI + Clippy xanh |
+| Giai đoạn 6 spike | xong: khuyến nghị "shadow view" trong webview (xem SPIKE doc) |
+| Còn lại trước Giai đoạn 2 | cài bản fork lên máy (cần đóng OMP Desktop), giải phóng ổ C: nếu muốn build local |
 
 ## Quyết định đã chốt
 
