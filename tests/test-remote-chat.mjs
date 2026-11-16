@@ -176,3 +176,25 @@ test("menu: scope lock keeps the entry with its chip, bad ids drop it", () => {
   assert.equal(L.messageMenu({ messages: [{ role: "tool" }], index: 0, busy: false, gate: ok }), null);
   assert.equal(L.messageMenu({ messages: thread, index: 9, busy: false, gate: ok }), null);
 });
+
+test("diffPreview counts changed lines of a unified diff and previews the first ones", async () => {
+  const L = (await import("node:module")).createRequire(import.meta.url)("../src/remote/chat-logic.js");
+  const out = L.diffPreview("--- a/x.ts\n+++ b/x.ts\n@@ -1,3 +1,3 @@\n context\n-old one\n+new one\n+new two\n-old two\n-old three");
+  assert.deepEqual(JSON.parse(JSON.stringify(out)), { add: 2, rm: 3, lines: [
+    { kind: "rm", text: "old one" }, { kind: "add", text: "new one" }, { kind: "add", text: "new two" }, { kind: "rm", text: "old two" } ] });
+  assert.equal(L.diffPreview("just text output"), null);
+  assert.equal(L.diffPreview(""), null);
+  assert.equal(L.diffPreview("+++ b/x\n--- a/x"), null, "headers alone are not changes");
+});
+
+test("planStrip, contextLine and modelChip read only what the desktop published", async () => {
+  const L = (await import("node:module")).createRequire(import.meta.url)("../src/remote/chat-logic.js");
+  const strip = L.planStrip({ todos: [{ name: "P", tasks: [{ content: "a", status: "completed" }, { content: "b", status: "in_progress" }, { content: "c", status: "pending" }, { content: "x", status: "abandoned" }] }] });
+  assert.deepEqual(JSON.parse(JSON.stringify(strip)), { done: 1, total: 3, current: "b", pct: 33 });
+  assert.equal(L.planStrip({}), null);
+  assert.deepEqual(JSON.parse(JSON.stringify(L.contextLine({ context: { pct: 61.6, cost: "$1.84" } }))), { pct: 62, cost: "$1.84" });
+  assert.equal(L.contextLine({ context: {} }), null);
+  assert.equal(L.modelChip({ model: { name: "Claude Opus" }, thinkingLevel: "high" }), "Opus · high");
+  assert.equal(L.modelChip({ model: { id: "gpt-codex" }, thinkingLevel: "off" }), "codex");
+  assert.equal(L.modelChip({}), "Model & modes");
+});

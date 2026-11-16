@@ -21,7 +21,8 @@
     const attachments = h("div", { cls: "r-composer-attachments", hidden: true });
     const attachBtn = iconButton({ icon: "image", label: "Attach image", onClick: () => attachInput.click(), cls: "r-compose-attach" });
     const slashBtn = iconButton({ icon: "slash", label: "Commands", onClick: () => { field.value = "/"; field.focus(); onInput(); }, cls: "r-compose-slash" });
-    const modelBtn = h("button", { cls: "r-compose-model", on: { click: () => onModel() }, attrs: { "aria-label": "Model and modes" } }, h("span", { text: "Model & modes" }), icon("chevron-down", { size: 14 }));
+    const modelLabel = h("span", { text: "Model & modes" });
+    const modelBtn = h("button", { cls: "r-compose-model", on: { click: () => onModel() }, attrs: { "aria-label": "Model and modes" } }, modelLabel, icon("chevron-down", { size: 14 }));
     const controls = h("div", { cls: "r-compose-controls" });
     const steer = h("button", { cls: "r-mode-btn", attrs: { role: "radio", "aria-checked": "true" }, text: "Steer", on: { click: () => { mode = "steer"; sync(); } } });
     const later = h("button", { cls: "r-mode-btn", attrs: { role: "radio", "aria-checked": "false" }, text: "Queue", on: { click: () => { mode = "queue"; sync(); } } });
@@ -262,6 +263,7 @@
         fileSeq++; currentTab = tab;
       }
       state = next; view = activeView;
+      modelLabel.textContent = L.modelChip(view);
       localQueue = L.queuePrune(localQueue, view?.messages);
       sync();
     }

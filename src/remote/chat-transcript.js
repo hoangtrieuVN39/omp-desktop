@@ -109,13 +109,17 @@
       const name = tool.name || "tool";
       const mono = L.isCommandTool(name) || Boolean(tool.summary);
       const lines = live ? L.outputTail(tool.output, 3) : [];
+      const diff = !live && L.isEditTool(name) ? L.diffPreview(tool.output) : null;
       const head = h("span", { cls: "r-tool-head" },
         icon(L.toolIcon(name), { size: 16, className: live ? "r-tool-ic-live" : "" }),
         h("span", { cls: "r-tool-name", text: name }),
         tool.summary && h("span", { cls: `r-tool-sum${mono ? " mono" : ""}`, text: tool.summary }),
-        live ? h("span", { cls: "r-tool-meta r-tool-meta-live", text: "Running" }) : icon("chevron-right", { size: 16, className: "r-tool-chev" }));
+        live ? h("span", { cls: "r-tool-meta r-tool-meta-live", text: "Running" })
+          : diff ? h("span", { cls: "r-tool-meta mono" }, h("span", { cls: "r-diff-add", text: `+${diff.add}` }), " ", h("span", { cls: "r-diff-rm", text: `−${diff.rm}` }))
+            : icon("chevron-right", { size: 16, className: "r-tool-chev" }));
       const el = h("button", { cls: `r-tool${live ? " is-live" : ""}`, attrs: { "aria-label": `${name} ${tool.summary ?? ""}. Open output`.replace(/\s+/g, " ") }, on: { click: () => onOpenTool(message) } }, head,
-        lines.length && h("span", { cls: "r-tool-tail mono" }, ...lines.map(line => h("span", { cls: "r-tool-line", text: line }))));
+        lines.length && h("span", { cls: "r-tool-tail mono" }, ...lines.map(line => h("span", { cls: "r-tool-line", text: line }))),
+        diff && h("span", { cls: "r-tool-diff mono" }, ...diff.lines.map(line => h("span", { cls: `r-tool-dline is-${line.kind}`, text: `${line.kind === "add" ? "+" : "−"} ${line.text}` }))));
       return el;
     }
 

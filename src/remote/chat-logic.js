@@ -165,6 +165,48 @@
     return Array.isArray(view?.queue) ? view.queue.filter(item => hasText(item?.text)).map(item => ({ text: item.text, queue: item.queue === "steering" ? "steering" : "followUp" })) : local;
   }
 
+  // The composer's model chip: "opus · high", or the sheet's name before the desktop says.
+  function modelChip(view) {
+    const name = view?.model?.name ?? view?.model?.id;
+    if (!name) return "Model & modes";
+    const short = String(name).replace(/^(claude|gpt)[-\s]*/i, "").trim() || String(name);
+    return view?.thinkingLevel && view.thinkingLevel !== "off" ? `${short} · ${view.thinkingLevel}` : short;
+  }
+  // The strip under the header: "Plan 3/7 · <current task>" from view.todos, or null.
+  function planStrip(view) {
+    const tasks = (Array.isArray(view?.todos) ? view.todos : []).flatMap(phase => Array.isArray(phase?.tasks) ? phase.tasks : []);
+    const live = tasks.filter(t => t.status !== "abandoned");
+    if (!live.length) return null;
+    const done = live.filter(t => t.status === "completed").length;
+    const current = live.find(t => t.status === "in_progress") ?? live.find(t => t.status === "pending");
+    return { done, total: live.length, current: current?.content ?? "", pct: Math.round((done / live.length) * 100) };
+  }
+  // The line under the composer: "62% context · $1.84 this session", or null.
+  function contextLine(view) {
+    const c = view?.context;
+    if (!c) return null;
+    const pct = typeof c.pct === "number" ? Math.max(0, Math.min(100, Math.round(c.pct))) : null;
+    const cost = typeof c.cost === "string" && c.cost ? c.cost : null;
+    return pct === null && !cost ? null : { pct, cost };
+  }
+
+  // An edit card's inline preview: counts and the first changed lines of a unified
+  // diff, or null when the output is not one (headers and context lines are skipped).
+  function diffPreview(output, max = 4) {
+    if (typeof output !== "string" || !output) return null;
+    const lines = output.split(/\r?\n/);
+    let add = 0, rm = 0;
+    const shown = [];
+    for (const raw of lines) {
+      if (/^(\+\+\+|---) /.test(raw) || /^@@/.test(raw)) continue;
+      const k = raw.startsWith("+") ? "add" : raw.startsWith("-") ? "rm" : null;
+      if (!k) continue;
+      if (k === "add") add++; else rm++;
+      if (shown.length < max) shown.push({ kind: k, text: raw.slice(1).replace(/^\s?/, "") });
+    }
+    return add + rm === 0 ? null : { add, rm, lines: shown };
+  }
+
   // ── run state ────────────────────────────────────────────────────────────
   // The status pill of the header: { id, text, icon, dot }.
   function runState({ tab, view, stopped }) {
@@ -185,6 +227,7 @@
   // ── transcript helpers ───────────────────────────────────────────────────
   const BASH_TOOLS = /^(bash|shell|sh|exec|python|run|terminal|powershell|cmd)$/i;
   const EDIT_TOOLS = /^(edit|write|patch|multiedit|replace|apply_patch|notebook_edit)$/i;
+  const isEditTool = name => EDIT_TOOLS.test(name ?? "");
   function toolIcon(name) {
     if (BASH_TOOLS.test(name ?? "")) return "tool-bash";
     return EDIT_TOOLS.test(name ?? "") ? "slash" : "tool-file";
@@ -247,7 +290,7 @@
     composerState, submitPlan, composerPlaceholder,
     slashQuery, filterCommands, commandText, mentionToken, applyToken, fileItem, mentionInsert,
     queueAdd, queuePrune, queueRemoveItem, queuePromoteItem, queueOf,
-    runState, toolIcon, isCommandTool, outputTail, isLiveTool,
+    isEditTool, diffPreview, modelChip, planStrip, contextLine, runState, toolIcon, isCommandTool, outputTail, isLiveTool,
     entryIdOf, isFinalAnswer, turnNumber, messageMenu,
   };
   if (typeof window !== "undefined") window.OMP_REMOTE_CHAT = chat;

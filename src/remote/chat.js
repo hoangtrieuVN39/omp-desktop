@@ -34,7 +34,9 @@
     const waiting = h("button", { cls: "r-chat-waiting", on: { click: () => UI.navigate("sessions") } });
     waiting.hidden = true;
     const follow = h("div", { cls: "r-chat-follow" }, icon("desktop", { size: 15 }), followText, waiting);
-    const head = h("header", { cls: "r-chat-head" }, top, follow);
+    const plan = h("button", { cls: "r-chat-plan", on: { click: () => UI.navigate("agents") } });
+    plan.hidden = true;
+    const head = h("header", { cls: "r-chat-head" }, top, follow, plan);
 
     const transcript = root.OMP_REMOTE_CHAT_TRANSCRIPT.create({
       ctx,
@@ -47,7 +49,9 @@
       onModel: () => UI.openSheetById("model-modes", { tabId: ctx.state().activeTabId }),
     });
 
-    const el = h("section", { cls: "r-screen r-chat-screen", attrs: { "aria-label": "Chat" } }, head, transcript.stage, composer.el);
+    const meta = h("div", { cls: "r-chat-meta" });
+    meta.hidden = true;
+    const el = h("section", { cls: "r-screen r-chat-screen", attrs: { "aria-label": "Chat" } }, head, transcript.stage, composer.el, meta);
 
     function update(state) {
       const view = state.view;
@@ -62,6 +66,22 @@
       waiting.textContent = `${others} more waiting`;
       waiting.append(icon("chevron-right", { size: 14 }));
       follow.hidden = !state.connected;
+      const strip = L.planStrip(view);
+      plan.hidden = !strip;
+      if (strip) {
+        const bar = h("span", { cls: "r-chat-plan-bar" }, h("span", { cls: "r-chat-plan-fill", attrs: { "data-pct": strip.pct } }));
+        bar.firstChild.style.width = `${strip.pct}%`;
+        plan.replaceChildren(icon("nav-agents", { size: 16 }), h("span", { cls: "r-chat-plan-label", text: `Plan ${strip.done}/${strip.total}` }),
+          h("span", { cls: "r-chat-plan-task", text: strip.current }), bar, icon("chevron-right", { size: 16 }));
+      }
+      const line = L.contextLine(view);
+      meta.hidden = !line;
+      if (line) {
+        const fill = h("span", { cls: "r-chat-meter-fill" });
+        fill.style.width = `${line.pct ?? 0}%`;
+        meta.replaceChildren(...[line.pct !== null && h("span", { cls: "r-chat-meter" }, fill),
+          line.pct !== null && h("span", { text: `${line.pct}% context` }), line.cost && h("span", { text: `${line.cost} this session` })].filter(Boolean));
+      }
 
       const stopped = Boolean(stoppedTab && stoppedTab === tab?.id && !view?.busy);
       if (view?.busy && stoppedTab === tab?.id) stoppedTab = null;

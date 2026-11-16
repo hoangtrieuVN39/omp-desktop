@@ -66,7 +66,7 @@
 .r-tool-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* composer */
-.r-chat-compose-wrap { position: relative; flex: none; background: var(--bg-window); border-top: 1px solid var(--line); padding: 8px calc(12px + var(--sar)) calc(6px + var(--sab)) calc(12px + var(--sal)); display: flex; flex-direction: column; gap: 8px; }
+.r-chat-compose-wrap { position: relative; flex: none; background: var(--bg-window); border-top: 1px solid var(--line); padding: 8px calc(12px + var(--sar)) 6px calc(12px + var(--sal)); display: flex; flex-direction: column; gap: 8px; }
 .r-composer-queue { display: flex; flex-direction: column; gap: 2px; }
 .r-queue-row { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 4px 0 12px; border-radius: 10px; background: var(--bg-surface); border: 1px solid var(--line-soft); font-size: 14px; }
 .r-queue-label { font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--fg-3); }
@@ -107,3 +107,18 @@
 .r-palette-name { font-size: 14px; font-weight: 600; }
 .r-palette-hint { font-size: 13px; color: var(--fg-3); }
 .r-palette-note { flex-basis: 100%; font-size: 13px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.r-chat-plan { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 16px 10px; border: 0; border-top: 1px solid var(--line-soft); background: transparent; text-align: left; font-size: 14px; color: var(--fg-3); }
+.r-chat-plan-label { flex: none; }
+.r-chat-plan-task { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); font-weight: 500; }
+.r-chat-plan-bar { flex: none; width: 64px; height: 4px; border-radius: 2px; background: var(--bg-active); overflow: hidden; }
+.r-chat-plan-fill { display: block; height: 4px; background: var(--accent); }
+.r-chat-meta { flex: none; display: flex; align-items: center; gap: 12px; padding: 0 calc(16px + var(--sar)) 6px calc(16px + var(--sal)); background: var(--bg-window); font-size: 13px; color: var(--fg-3); }
+.r-chat-meter { width: 40px; height: 4px; border-radius: 2px; background: var(--bg-active); overflow: hidden; }
+.r-chat-meter-fill { display: block; height: 4px; background: var(--accent); }
+.r-diff-add { color: var(--diff-add-fg); }
+.r-diff-rm { color: var(--diff-rm-fg); }
+.r-tool-diff { display: flex; flex-direction: column; border-top: 1px solid var(--line-soft); font-size: 13px; line-height: 1.55; }
+.r-tool-dline { padding: 0 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.r-tool-dline.is-add { background: var(--diff-add-bg); color: var(--diff-add-fg); }
+.r-tool-dline.is-rm { background: var(--diff-rm-bg); color: var(--diff-rm-fg); }

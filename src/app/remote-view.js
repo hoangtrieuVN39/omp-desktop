@@ -131,8 +131,18 @@
     });
     return rows.length ? rows : undefined;
   }
+  function publicModel(model) {
+    if (!model || typeof model !== "object") return undefined;
+    return { provider: text(model.provider, 80), id: text(model.id, 160), name: text(model.name ?? model.id, 160) };
+  }
   function extras(snapshot) {
     const out = {};
+    const model = publicModel(snapshot.model);
+    if (model?.id) out.model = model;
+    const level = text(snapshot.thinkingLevel, 24);
+    if (level) out.thinkingLevel = level;
+    const pct = finite(Number(snapshot.ctx?.pct)), cost = text(snapshot.ctx?.cost, 24);
+    if (pct !== undefined || cost) out.context = { ...(pct !== undefined ? { pct } : {}), ...(cost ? { cost } : {}) };
     const queue = publicQueue(snapshot.queue);
     if (queue.length) out.queue = queue;
     const goal = publicGoal(snapshot.goal);
