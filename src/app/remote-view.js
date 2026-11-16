@@ -251,13 +251,19 @@
             break;
           }
           default: {
+            // Still valid (listening, paired, fresh) and, for a tab op, that
+            // tab still the active one: before running, and again inside the
+            // op right before any side effect that follows an await.
+            const check = () => {
+              guard();
+              if (!ops.TABLESS.has(kind) && (activeTab() !== tabId || getSnapshot()?.activeSessionId !== tabId)) {
+                throw new Error("tab not available");
+              }
+            };
             if (typeof bridge.waitForActivation === "function") await bridge.waitForActivation();
-            guard();
-            if (!ops.TABLESS.has(kind) && (activeTab() !== tabId || getSnapshot()?.activeSessionId !== tabId)) {
-              throw new Error("tab not available");
-            }
+            check();
             data = await ops.run(kind, action.args, action.text, {
-              bridge, deviceId: action.deviceId, tabId,
+              bridge, deviceId: action.deviceId, tabId, check,
               snapshot: getSnapshot,
               entry: () => getSnapshot()?.sessions?.find(s => s.id === tabId) ?? null,
             });

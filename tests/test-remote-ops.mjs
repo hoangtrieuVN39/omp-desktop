@@ -173,3 +173,40 @@ test("the handler validates, runs and returns query data; images reach the promp
   assert.equal(plain[4][1], true, "a tab-less query needs no tab");
   assert.deepEqual(JSON.parse(JSON.stringify(sent)), [["look", [{ type: "image", data: "AAA", mimeType: "image/png" }]]]);
 });
+
+test("a desktop tab switch while an op awaits stops its side effect", async () => {
+  const { view } = load();
+  let active = "t1";
+  let releaseBranches;
+  const calls = [];
+  const results = [];
+  const bridge = {
+    get activeSessionId() { return active; },
+    activateSession: async () => {},
+    remoteActionResult: async (...args) => results.push(JSON.parse(JSON.stringify(args))),
+    gitBranches: () => new Promise(resolve => { releaseBranches = () => resolve({ ok: true, value: [{ name: "main", remote: false }] }); }),
+    gitSwitchBranch: async (...args) => { calls.push(["switch", ...args]); return { ok: true, value: null }; },
+    thinkingLevels: () => new Promise(resolve => { releaseBranches = () => resolve(["high"]); }),
+    setThinkingLevel: async level => calls.push(["thinking", level]),
+  };
+  const status = { listening: true, devices: [{ id: "d", connected: true }] };
+  const snapshotFor = () => snap({ activeSessionId: active });
+  const handle = view.makeActionHandler(bridge, snapshotFor, () => status);
+
+  const pending = handle({ reqId: "b1", deviceId: "d", tabId: "t1", kind: "gitSwitchBranch", args: { name: "main", remote: false } });
+  while (!releaseBranches) await new Promise(r => setTimeout(r, 1));
+  active = "t2"; // the desktop user switches A → B while the branch list loads
+  releaseBranches();
+  await pending;
+  assert.deepEqual(calls, [], "no branch switch on tab B's project");
+  assert.deepEqual(results.at(-1), ["b1", false, "tab not available"]);
+
+  active = "t1"; releaseBranches = null;
+  const pending2 = handle({ reqId: "k1", deviceId: "d", tabId: "t1", kind: "setThinking", args: { level: "high" } });
+  while (!releaseBranches) await new Promise(r => setTimeout(r, 1));
+  active = "t2";
+  releaseBranches();
+  await pending2;
+  assert.deepEqual(calls, [], "no thinking change on tab B");
+  assert.deepEqual(results.at(-1), ["k1", false, "tab not available"]);
+});

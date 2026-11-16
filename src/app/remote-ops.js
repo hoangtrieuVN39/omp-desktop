@@ -139,12 +139,16 @@
   const TABLESS = new Set(["projects", "profiles", "approvalModes"]);
 
   /**
-   * Run one op. `ctx`: { bridge, snapshot(), deviceId, tabId, entry() }.
-   * Resolves to the data for the phone (or undefined); throws a display
-   * error. Assumes the tab is already active when the op needs one.
+   * Run one op. `ctx`: { bridge, snapshot(), deviceId, tabId, entry(),
+   * check() }. Resolves to the data for the phone (or undefined); throws a
+   * display error. The caller activated the tab; `check` throws unless the
+   * request is still valid and that tab still active, and runs right before
+   * every side effect that follows an await — a desktop tab switch during
+   * the wait must not land the change on another tab's session or project.
    */
   async function run(kind, args, text, ctx) {
     const { bridge } = ctx;
+    const check = ctx.check ?? (() => {});
     const a = isObj(args) ? args : {};
     const snap = ctx.snapshot();
     const project = () => {
@@ -164,7 +168,12 @@
     const truthy = async (call, error) => { if ((await call) === false) throw new Error(error); };
     switch (kind) {
       // actions
-      case "followUp": await bridge.followUp(text, await takeImages()); return undefined;
+      case "followUp": {
+        const images = await takeImages();
+        check();
+        await bridge.followUp(text, images);
+        return undefined;
+      }
       case "queueRemove": return truthy(bridge.removeQueuedMessage(a.text, a.queue), "no longer queued");
       case "queuePromote": return truthy(bridge.promoteQueuedMessage(a.text), "no longer queued");
       case "queueSendNow": return truthy(bridge.sendQueuedNow(a.text, a.queue), "no longer queued");
@@ -186,6 +195,7 @@
       case "setThinking": {
         const levels = await bridge.thinkingLevels();
         if (!levels.includes(a.level)) throw new Error("level not supported by this model");
+        check();
         await bridge.setThinkingLevel(a.level);
         return undefined;
       }
@@ -201,6 +211,7 @@
         const list = await bridge.listSavedSessions(null);
         const session = (list ?? []).find(s => opaqueId(s.path) === a.sessionId);
         if (!session) throw new Error("unknown session");
+        check();
         const tabId = await bridge.resumeSession(session);
         if (!tabId) throw new Error("could not open the session");
         return { tabId };
@@ -215,6 +226,7 @@
       case "gitSwitchBranch": {
         const branches = unwrap(await bridge.gitBranches()) ?? [];
         if (!branches.some(b => b.name === a.name && Boolean(b.remote) === a.remote)) throw new Error("unknown branch");
+        check();
         unwrap(await bridge.gitSwitchBranch(a.name, a.remote));
         return undefined;
       }
